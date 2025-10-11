@@ -62,29 +62,22 @@ export class SmartFeedManager extends EventEmitter {
 
       this.ws.on("open", () => logger.system("Connected to Upstox (v3)", "SmartFeed"));
 
-      this.ws.on("message", async (msg: RawData) => {
-        try {
-          logger.system(`Raw packet received: ${msg instanceof Buffer ? msg.byteLength : 'unknown'} bytes`, "FeedRaw");  
-          const bytes = rawDataToUint8Array(msg);
-          const decoded = await decodeMessageBinary(bytes);
-          const feeds = decoded.feeds as Record<string, any> | undefined;
-          if (!feeds) return;
+      this.ws.on("message", (msg: WebSocket.RawData) => {
+  if (msg instanceof Buffer) {
+    logger.system(`[FeedRaw] Received Buffer: ${msg.byteLength} bytes`, "SmartFeed");
+    console.log("Raw HEX:", msg.subarray(0, 20).toString("hex")); // preview first 20 bytes
+  } else if (msg instanceof ArrayBuffer) {
+    logger.system(`[FeedRaw] Received ArrayBuffer: ${msg.byteLength} bytes`, "SmartFeed");
+    const arr = new Uint8Array(msg);
+    console.log("Raw HEX:", Buffer.from(arr.subarray(0, 20)).toString("hex"));
+  } else if (Array.isArray(msg)) {
+    logger.system(`[FeedRaw] Received Array<Uint8Array> of length ${msg.length}`, "SmartFeed");
+    console.log("First chunk:", msg[0]?.subarray(0, 20));
+  } else {
+    logger.warn(`[FeedRaw] Unknown type: ${typeof msg}`, "SmartFeed");
+  }
+});
 
-          for (const [symbol, feedValue] of Object.entries(feeds)) {
-            const ltp =
-              Number(feedValue?.ltpc?.ltp ??
-                     feedValue?.firstLevelWithGreeks?.ltpc?.ltp ?? 0);
-            const prev = this.cache[symbol]?.ltp ?? 0;
-            if (Math.abs(ltp - prev) <= 0.05) continue;
-
-            this.cache[symbol] = { ltp };
-            const result = this.detector.analyze(symbol, feedValue);
-            if (result) this.emit("tick", { symbol, ...result, timestamp: new Date().toISOString() });
-          }
-        } catch (e: any) {
-          logger.error(`Decode error: ${e.message}`, "SmartFeed");
-        }
-      });
 
       this.ws.on("close", () => {
         logger.warn("Feed closed, reconnecting…", "SmartFeed");
