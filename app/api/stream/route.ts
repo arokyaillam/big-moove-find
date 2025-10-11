@@ -9,8 +9,8 @@ export async function GET(req: NextRequest) {
   const writer = writable.getWriter();
 
   const feed = getSmartFeed();
-  const clientId = Math.random().toString(36).substring(2, 8);
-  logger.info(`SSE client connected (${clientId})`, "LiveStream");
+  const id = Math.random().toString(36).slice(2, 8);
+  logger.info(`SSE client connected (${id})`, "LiveStream");
 
   const onTick = (payload: any) => writer.write(`data: ${JSON.stringify(payload)}\n\n`);
   feed.on("tick", onTick);
@@ -18,7 +18,7 @@ export async function GET(req: NextRequest) {
   req.signal.addEventListener("abort", () => {
     feed.off("tick", onTick);
     writer.close();
-    logger.warn(`SSE client disconnected (${clientId})`, "LiveStream");
+    logger.warn(`SSE client disconnected (${id})`, "LiveStream");
   });
 
   return new Response(readable, {

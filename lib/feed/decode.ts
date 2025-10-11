@@ -1,18 +1,25 @@
 import protobuf from "protobufjs";
+import path from "path";
 import type { FeedResponseShape } from "./types";
+import { logger } from "@/lib/logger";
 
 let root: protobuf.Root | null = null;
+let FeedResponse: protobuf.Type | null = null;
 
-export async function loadProto() {
+export async function loadProto(): Promise<protobuf.Root> {
   if (root) return root;
-  root = await protobuf.load("lib/feed/proto/MarketDataFeedV3.proto");
+  const protoPath = path.join(process.cwd(), "lib", "feed", "proto", "MarketDataFeedV3.proto");
+  logger.system(`Loading proto: ${protoPath}`, "Decoder");
+  root = await protobuf.load(protoPath);
+  FeedResponse = root.lookupType("com.upstox.marketdatafeederv3udapi.rpc.proto.FeedResponse");
+  if (!FeedResponse) throw new Error("FeedResponse type not found");
+  logger.system("FeedResponse type loaded", "Decoder");
   return root;
 }
 
 export async function decodeMessageBinary(bytes: Uint8Array): Promise<FeedResponseShape> {
-  const r = await loadProto();
-  const FeedResponse = r.lookupType("com.upstox.marketdatafeederv3udapi.rpc.proto.FeedResponse");
-  const decoded = FeedResponse.decode(bytes);
-  const obj = FeedResponse.toObject(decoded, { longs: String, enums: String, bytes: String }) as any;
-  return obj as FeedResponseShape;
+  if (!FeedResponse) await loadProto();
+  const decoded = FeedResponse!.decode(bytes);
+  const obj = FeedResponse!.toObject(decoded, { longs: String, enums: String, bytes: String }) as FeedResponseShape;
+  return obj;
 }
