@@ -1,41 +1,50 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useFeedStore } from "@/lib/stores/useFeedStore";
+import { useSSEFeed } from "@/lib/client/useSSEFeed";
+import { AlertCard } from "@/components/AlertCard";
+import { HeatmapGrid } from "@/components/HeatmapGrid";
+import { SummaryBoard } from "@/components/SummaryBoard"; // your existing
 
 export default function DashboardPage() {
-  const [alerts, setAlerts] = useState<any[]>([]);
-
-  useEffect(() => {
-    const es = new EventSource("/api/stream");
-    es.onmessage = (e) => {
-      const data = JSON.parse(e.data);
-      setAlerts((prev) => [data, ...prev].slice(0, 30));
-    };
-    es.onerror = () => es.close();
-    return () => es.close();
-  }, []);
+  useSSEFeed();
+  const { alerts, status, clear } = useFeedStore();
 
   return (
-    <main className="p-8 space-y-4">
-      <h1 className="text-xl font-bold">⚡ Big Move Alerts</h1>
-      <div className="grid gap-3">
-        {alerts.map((a, i) => (
-          <div
-            key={i}
-            className={`p-4 border-l-4 rounded-md ${
-              a.alertLevel === "CRITICAL" ? "border-red-500 bg-red-100/10"
-              : a.alertLevel === "WARNING" ? "border-yellow-400 bg-yellow-100/10"
-              : a.alertLevel === "WATCH" ? "border-blue-400 bg-blue-100/10"
-              : "border-gray-700"
+    <main className="p-6 space-y-6">
+      <header className="flex justify-between items-center">
+        <h1 className="text-2xl font-bold">⚡ Big Move Dashboard</h1>
+        <div className="flex items-center gap-2">
+          <span
+            className={`text-xs px-2 py-1 rounded ${
+              status === "connected"
+                ? "bg-green-600"
+                : status === "connecting"
+                ? "bg-yellow-500"
+                : "bg-red-600"
             }`}
           >
-            <div className="flex justify-between">
-              <div className="font-semibold">{a.symbol}</div>
-              <div className="text-sm opacity-70">{Number(a.score).toFixed(2)}</div>
-            </div>
-            <div className="text-xs opacity-70">{a.alertLevel}</div>
-          </div>
+            {status}
+          </span>
+          <button onClick={clear} className="text-xs bg-gray-800 px-2 py-1 rounded hover:bg-gray-700">
+            Clear
+          </button>
+        </div>
+      </header>
+
+      <SummaryBoard />
+
+      <section>
+        <h2 className="text-sm font-semibold mb-2 opacity-80">Heatmap (Top movers)</h2>
+        <HeatmapGrid />
+      </section>
+
+      <section className="space-y-3">
+        <h2 className="text-sm font-semibold opacity-80">Live Alerts</h2>
+        {alerts.length === 0 && <div className="opacity-70 text-sm">No alerts yet…</div>}
+        {alerts.map((a, i) => (
+          <AlertCard key={i} {...a} />
         ))}
-      </div>
+      </section>
     </main>
   );
 }

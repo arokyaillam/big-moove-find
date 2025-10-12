@@ -1,0 +1,33 @@
+{
+  "type": "live_feed",
+  "feeds": {
+    "NSE_FO|61755": {
+      "fullFeed": {
+        "marketFF": {
+          "ltpc": { "ltp": 181.95, "ltt": "1747984841612", "ltq": "75", "cp": 73.85 },
+          "marketLevel": {
+            "bidAskQuote": [
+              { "bidQ": "600", "bidP": 182.05, "askQ": "750", "askP": 182.4 },
+              { "bidQ": "1950", "bidP": 182, "askQ": "675", "askP": 182.45 }
+            ]
+          },
+          "optionGreeks": { "delta": 0.4519, "theta": -17.6157, "gamma": 0.0007, "vega": 12.7741, "rho": 1.8554 },
+          "marketOHLC": {
+            "ohlc": [
+              { "interval": "1d", "open": 73.85, "high": 197.7, "low": 62.2, "close": 181.95, "vol": "119686575" },
+              { "interval": "I1", "open": 183.8, "high": 187, "low": 183.6, "close": 183.8, "vol": "248175" }
+            ]
+          },
+          "atp": 139.42,
+          "vtt": "119687250",
+          "oi": 8326800,
+          "iv": 0.1685333251953125,
+          "tbq": 4185525,
+          "tsq": 901350
+        },
+        "requestMode": "full_d30"
+      }
+    },
+    "currentTs": "1747984842536"
+  }
+}

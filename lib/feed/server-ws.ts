@@ -67,6 +67,8 @@ export class SmartFeedManager extends EventEmitter {
 
           const decoded: FeedResponseShape = await decodeMessageBinary(bytes);
           logger.system(`[FeedDecode] Keys: ${Object.keys(decoded ?? {}).join(", ")}`, "SmartFeed");
+          console.log(JSON.stringify(decoded, null, 2));
+
 
           const feeds = decoded.feeds as Record<string, FeedValue> | undefined;
           if (!feeds) return;
@@ -109,7 +111,11 @@ export class SmartFeedManager extends EventEmitter {
   }
 }
 
+
+
 let smartFeed: SmartFeedManager | null = null;
+
+
 export function getSmartFeed() {
   if (!smartFeed) { smartFeed = new SmartFeedManager(); smartFeed.connect(); }
   return smartFeed;
