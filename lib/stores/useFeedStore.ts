@@ -43,3 +43,8 @@ export const useFeedStore = create<FeedStore>((set, get) => ({
   setStatus: (s) => set({ status: s }),
   clear: () => set({ alerts: [], history: {} }),
 }));
+
+// Memoized selectors to prevent unnecessary re-renders
+export const useAddAlert = () => useFeedStore((s) => s.addAlert);
+export const useSetStatus = () => useFeedStore((s) => s.setStatus);
+export const useClearAlerts = () => useFeedStore((s) => s.clear);

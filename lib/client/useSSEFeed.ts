@@ -1,11 +1,11 @@
 "use client";
 import { useEffect } from "react";
-import { useFeedStore } from "@/lib/stores/useFeedStore";
+import { useAddAlert, useSetStatus } from "@/lib/stores/useFeedStore";
 import { logger } from "@/lib/logger";
 
 export function useSSEFeed() {
-  const addAlert = useFeedStore((s) => s.addAlert);
-  const setStatus = useFeedStore((s) => s.setStatus);
+  const addAlert = useAddAlert();
+  const setStatus = useSetStatus();
 
   useEffect(() => {
     const es = new EventSource("/api/test-feed");
