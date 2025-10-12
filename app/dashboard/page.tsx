@@ -44,14 +44,25 @@ export default function DashboardPage() {
       </section>
 
       <section className="space-y-3">
-        <h2 className="text-lg font-semibold text-white">Live Alerts</h2>
+        <div className="flex justify-between items-center">
+          <h2 className="text-lg font-semibold text-white">Live Alerts</h2>
+          <div className="flex items-center gap-2">
+            <div className="text-xs text-white/60 bg-black/20 px-2 py-1 rounded">
+              {alerts.length} alerts • {new Set(alerts.map(a => a.symbol)).size} symbols
+            </div>
+            <div className="flex items-center gap-1 text-xs text-green-400">
+              <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse"></div>
+              <span>LIVE</span>
+            </div>
+          </div>
+        </div>
         {alerts.length === 0 && (
           <div className="opacity-70 text-sm text-white/80 text-center py-8">
             No alerts yet…
           </div>
         )}
-        {alerts.map((a, i) => (
-          <AlertCard key={`${a.symbol}-${i}`} {...a} />
+        {alerts.map((a) => (
+          <AlertCard key={a.symbol} {...a} />
         ))}
       </section>
     </main>

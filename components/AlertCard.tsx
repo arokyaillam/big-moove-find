@@ -24,15 +24,36 @@ export function AlertCard({ symbol, alertLevel, score, metrics, timestamp }: Ale
       animate={{ opacity: 1, y: 0 }}
       exit={{ opacity: 0, y: -8 }}
       transition={{ duration: 0.3, ease: "easeOut" }}
-      className={`p-4 rounded-xl border-l-4 transition-colors ${colors[alertLevel]}`}
+      className={`p-4 rounded-xl border-l-4 transition-all duration-300 ${colors[alertLevel]}`}
     >
-      <div className="flex justify-between items-center mb-2">
+      <motion.div
+        className="flex justify-between items-center mb-2"
+        initial={{ scale: 1 }}
+        animate={{ scale: 1 }}
+        whileHover={{ scale: 1.02 }}
+      >
         <h3 className="font-semibold text-lg text-white">{symbol}</h3>
-        <span className="text-sm opacity-70 text-white/80">{new Date(timestamp).toLocaleTimeString()}</span>
-      </div>
-      <div className="text-xs uppercase opacity-80 text-white/90 mb-3 font-semibold">
+        <div className="flex items-center gap-2">
+          <motion.div
+            initial={{ opacity: 0.7 }}
+            animate={{ opacity: 1 }}
+            transition={{ duration: 0.5, repeat: Infinity, repeatType: "reverse" }}
+            className="w-2 h-2 bg-green-400 rounded-full"
+            title="Live updates"
+          />
+          <span className="text-sm opacity-70 text-white/80">
+            {new Date(timestamp).toLocaleTimeString()}
+          </span>
+        </div>
+      </motion.div>
+      <motion.div
+        className="text-xs uppercase opacity-80 text-white/90 mb-3 font-semibold"
+        initial={{ opacity: 0.8 }}
+        animate={{ opacity: 1 }}
+        transition={{ duration: 0.3 }}
+      >
         {alertLevel} • Score {score.toFixed(2)}
-      </div>
+      </motion.div>
       <div className="grid grid-cols-4 gap-2 text-xs text-white/80">
         <div className="bg-black/20 p-2 rounded">
           <div className="opacity-70">LTP</div>

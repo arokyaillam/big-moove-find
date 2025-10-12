@@ -25,19 +25,32 @@ export const useFeedStore = create<FeedStore>((set, get) => ({
   alerts: [],
   status: "connecting",
   history: {},
-  addAlert: (a) =>
+  addAlert: (newAlert) =>
     set((state) => {
-      // alerts (FIFO cap)
-      const alerts = [a, ...state.alerts].slice(0, MAX_ALERTS);
+      // Check if alert for this symbol already exists
+      const existingIndex = state.alerts.findIndex(alert => alert.symbol === newAlert.symbol);
 
-      // history (per symbol)
+      let alerts: Alert[];
+      if (existingIndex >= 0) {
+        // Update existing alert in place (for smoother animations)
+        alerts = [...state.alerts];
+        const oldAlert = alerts[existingIndex];
+        alerts[existingIndex] = { ...newAlert, timestamp: new Date().toISOString() };
+        console.log(`🔄 Updated ${newAlert.symbol}: Score ${oldAlert.score.toFixed(2)} → ${newAlert.score.toFixed(2)}`);
+      } else {
+        // Add new alert at the beginning (FIFO)
+        alerts = [newAlert, ...state.alerts].slice(0, MAX_ALERTS);
+        console.log(`🆕 Added new alert for ${newAlert.symbol} (Score: ${newAlert.score.toFixed(2)})`);
+      }
+
+      // history (per symbol) - always add new data point
       const t = Date.now();
-      const prevSeries = state.history[a.symbol] ?? [];
-      const series = [{ t, score: a.score }, ...prevSeries].slice(0, MAX_POINTS_PER_SYMBOL);
+      const prevSeries = state.history[newAlert.symbol] ?? [];
+      const series = [{ t, score: newAlert.score }, ...prevSeries].slice(0, MAX_POINTS_PER_SYMBOL);
 
       return {
         alerts,
-        history: { ...state.history, [a.symbol]: series },
+        history: { ...state.history, [newAlert.symbol]: series },
       };
     }),
   setStatus: (s) => set({ status: s }),

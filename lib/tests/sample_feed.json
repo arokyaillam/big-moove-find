@@ -11,7 +11,7 @@
               { "bidQ": "1950", "bidP": 182, "askQ": "675", "askP": 182.45 }
             ]
           },
-          "optionGreeks": { "delta": 0.4519, "theta": -17.6157, "gamma": 0.0007, "vega": 12.7741, "rho": 1.8554 },
+          "optionGreeks": { "delta": 0.4519, "theta": -17.6157, "gamma": 0.0002, "vega": 12.7741, "rho": 1.8554 },
           "marketOHLC": {
             "ohlc": [
               { "interval": "1d", "open": 73.85, "high": 197.7, "low": 62.2, "close": 181.95, "vol": "119686575" },
@@ -19,11 +19,11 @@
             ]
           },
           "atp": 139.42,
-          "vtt": "119687250",
+          "vtt": "11968",
           "oi": 8326800,
           "iv": 0.1685333251953125,
-          "tbq": 4185525,
-          "tsq": 901350
+          "tbq": 4185,
+          "tsq": 4185
         },
         "requestMode": "full_d30"
       }
