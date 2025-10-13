@@ -17,6 +17,17 @@ async function waitForWsOpen(feed: any, timeout = 7000): Promise<WS> {
   throw new Error("WebSocket not ready after timeout");
 }
 
+export async function OPTIONS() {
+  return new Response(null, {
+    status: 204,
+    headers: {
+      "Access-Control-Allow-Origin": "*",
+      "Access-Control-Allow-Methods": "POST, OPTIONS",
+      "Access-Control-Allow-Headers": "Content-Type",
+    },
+  });
+}
+
 export async function POST(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url);
@@ -45,21 +56,46 @@ export async function POST(req: NextRequest) {
       return new Response("Invalid type", { status: 400 });
     }
 
-    const feed = getSmartFeed();
+    const feed = await getSmartFeed();
     logger.system(`Command received: type=${type}, count=${symbols.length}`, "Command");
+
+    // Check if feed is properly connected before proceeding
+    if (!feed.isConnected()) {
+      logger.error("Feed not connected for subscription command", "Command");
+      return new Response("Feed not connected", { status: 503 });
+    }
 
     const ws = await waitForWsOpen(feed);
 
+    const results = [];
     for (const sym of symbols) {
       const symbol = normalizeSymbol(sym);
-      if (type === "sub") {
-        subscribe(symbol, ws);
-      } else {
-        unsubscribe(symbol, ws);
+      try {
+        if (type === "sub") {
+          subscribe(symbol, ws);
+          results.push({ symbol, action: "subscribed" });
+        } else {
+          unsubscribe(symbol, ws);
+          results.push({ symbol, action: "unsubscribed" });
+        }
+      } catch (error) {
+        logger.error(`Failed to ${type} ${symbol}: ${error}`, "Command");
+        results.push({ symbol, action: "failed", error: String(error) });
       }
     }
 
-    return Response.json({ ok: true, action: type, symbols });
+    return Response.json({
+      ok: true,
+      action: type,
+      count: symbols.length,
+      results
+    }, {
+      headers: {
+        "Access-Control-Allow-Origin": "*",
+        "Access-Control-Allow-Methods": "POST, OPTIONS",
+        "Access-Control-Allow-Headers": "Content-Type",
+      }
+    });
   } catch (err: any) {
     logger.error(`Command error: ${err.message}`, "Command");
     return new Response("Internal error", { status: 500 });

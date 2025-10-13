@@ -6,7 +6,9 @@
     "dev": "next dev --turbopack",
     "build": "next build --turbopack",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "setup": "node scripts/setup-dev.js",
+    "test:api": "curl http://localhost:3000/api/test"
   },
   "dependencies": {
     "@radix-ui/react-label": "^2.1.7",

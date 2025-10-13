@@ -5,8 +5,13 @@ type Alert = {
   symbol: string;
   alertLevel: "NORMAL" | "WATCH" | "WARNING" | "CRITICAL";
   score: number;
-  metrics: { ltp: number; volumeRatio: number; priceRange: number; obRatio: number };
+  metrics: { ltp: number; volumeRatio: number; priceRange: number; obRatio: number; gamma?: number; delta?: number; iv?: number };
   timestamp: string;
+  type?: string;
+  feedValue?: any;
+  fullFeed?: any;
+  ltpc?: any;
+  firstLevelWithGreeks?: any;
 };
 
 type FeedStore = {

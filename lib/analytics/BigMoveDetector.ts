@@ -37,10 +37,10 @@ export class BigMoveDetector {
   }
 
   /**
-   * Core analysis
+   * Core analysis - updated for comprehensive market data
    */
-  analyze(symbol: string, env: any) {
-    const mff = env?.fullFeed?.marketFF;
+  analyze(symbol: string, feedValue: any) {
+    const mff = feedValue?.fullFeed?.marketFF;
     if (!mff) return null;
 
     const ltp = this.toNum(mff.ltpc?.ltp);
@@ -48,72 +48,105 @@ export class BigMoveDetector {
     const tbq = this.toNum(mff.tbq);
     const tsq = this.toNum(mff.tsq);
     const gamma = this.toNum(mff.optionGreeks?.gamma);
+    const delta = this.toNum(mff.optionGreeks?.delta);
+    const iv = this.toNum(mff.optionGreeks?.iv);
 
     // === Volume ratio
     const avgVol = this.avgVolumes.get(symbol) || (volume / 10 || 1);
+    this.avgVolumes.set(symbol, (this.avgVolumes.get(symbol) || 0) * 0.9 + volume * 0.1); // Update average
     const volumeRatio = volume / avgVol;
 
     // === Orderbook ratio
     const obRatio = tsq > 0 ? tbq / tsq : 0;
 
-    // === Price range
+    // === Price range (use 1-minute candle if available)
     const candles = mff.marketOHLC?.ohlc || [];
-    const candle =
-      candles.find((c: any) => c.interval?.toUpperCase() === "I15") ||
-      candles.find((c: any) => c.interval?.toUpperCase() === "I1");
+    const candle = candles.find((c: any) => c.interval === "I1") ||
+                   candles.find((c: any) => c.interval === "I15") ||
+                   candles[0];
 
     let priceRange = 0;
     if (candle && candle.low > 0) {
       priceRange = ((candle.high - candle.low) / candle.low) * 100;
     }
 
-    // === Score calculation
+    // === Greeks analysis
+    const greeksScore = this.calculateGreeksScore(gamma, delta, iv);
+
+    // === Score calculation (enhanced)
     let score = 0;
 
-    // Volume factor (0–30)
-    if (volumeRatio > 5) score += 30;
-    else if (volumeRatio > 3) score += 20;
-    else if (volumeRatio > 2) score += 10;
+    // Volume factor (0–35) - increased weight
+    if (volumeRatio > 5) score += 35;
+    else if (volumeRatio > 3) score += 25;
+    else if (volumeRatio > 2) score += 15;
+    else if (volumeRatio > 1.5) score += 8;
 
-    // Price range factor (0–25)
-    if (priceRange > 3) score += 25;
-    else if (priceRange > 2) score += 15;
-    else if (priceRange > 1) score += 10;
+    // Price range factor (0–30) - increased weight
+    if (priceRange > 3) score += 30;
+    else if (priceRange > 2) score += 20;
+    else if (priceRange > 1) score += 12;
+    else if (priceRange > 0.5) score += 5;
 
-    // Order book factor (0–25)
-    if (obRatio > 5) score += 25;
-    else if (obRatio > 3) score += 20;
+    // Order book factor (0–20)
+    if (obRatio > 5) score += 20;
+    else if (obRatio > 3) score += 15;
     else if (obRatio > 2) score += 10;
+    else if (obRatio > 1.5) score += 5;
 
-    // Greeks factor (0–20)
-    if (gamma > 0.001) score += 20;
-    else if (gamma > 0.0005) score += 10;
-    else score += Math.min(gamma * 10000, 20);
+    // Greeks factor (0–15)
+    score += greeksScore;
 
     score = Math.min(score, 100);
 
-    // === Alert classification
+    // === Alert classification (enhanced thresholds)
     let alertLevel = "NORMAL";
-    if (score >= 70) alertLevel = "CRITICAL";
-    else if (score >= 50) alertLevel = "WARNING";
+    if (score >= 75) alertLevel = "CRITICAL";
+    else if (score >= 55) alertLevel = "WARNING";
     else if (score >= 35) alertLevel = "WATCH";
 
     return {
       score,
       alertLevel,
-      metrics: { volumeRatio, obRatio, priceRange, ltp },
-      signals: this.generateSignals(volumeRatio, priceRange, obRatio, gamma),
+      metrics: { volumeRatio, obRatio, priceRange, ltp, gamma, delta, iv },
+      signals: this.generateSignals(volumeRatio, priceRange, obRatio, gamma, delta, iv),
     };
   }
 
   /**
-   * Generate alert signals
+   * Calculate Greeks score for options analysis
+   */
+  private calculateGreeksScore(gamma: number, delta: number, iv: number): number {
+    let score = 0;
+
+    // Gamma analysis (0-5 points)
+    if (gamma > 0.001) score += 5;
+    else if (gamma > 0.0005) score += 3;
+    else if (gamma > 0.0001) score += 1;
+
+    // Delta analysis (0-5 points)
+    if (Math.abs(delta) > 0.7) score += 5;
+    else if (Math.abs(delta) > 0.5) score += 3;
+    else if (Math.abs(delta) > 0.3) score += 1;
+
+    // IV analysis (0-5 points)
+    if (iv > 0.3) score += 5;
+    else if (iv > 0.2) score += 3;
+    else if (iv > 0.1) score += 1;
+
+    return Math.min(score, 15);
+  }
+
+  /**
+   * Generate alert signals - enhanced with more Greeks data
    */
   private generateSignals(
     volRatio: number,
     priceRange: number,
     obRatio: number,
-    gamma: number
+    gamma: number,
+    delta?: number,
+    iv?: number
   ) {
     const signals: any[] = [];
 
@@ -152,6 +185,32 @@ export class BigMoveDetector {
         type: "INFO",
         title: "High Gamma Detected",
         message: `Gamma = ${gamma.toFixed(4)}`,
+      });
+    }
+
+    // Enhanced Greeks analysis
+    if (delta && Math.abs(delta) > 0.7) {
+      signals.push({
+        type: "WARNING",
+        title: "High Delta Exposure",
+        message: `Delta = ${delta.toFixed(3)} (High directional risk)`,
+      });
+    }
+
+    if (iv && iv > 0.25) {
+      signals.push({
+        type: "INFO",
+        title: "High Implied Volatility",
+        message: `IV = ${(iv * 100).toFixed(1)}%`,
+      });
+    }
+
+    // Combined analysis
+    if (gamma > 0.001 && Math.abs(delta || 0) > 0.6) {
+      signals.push({
+        type: "CRITICAL",
+        title: "Gamma-Delta Squeeze",
+        message: `High Gamma (${gamma.toFixed(4)}) + High Delta (${delta?.toFixed(3)})`,
       });
     }
 

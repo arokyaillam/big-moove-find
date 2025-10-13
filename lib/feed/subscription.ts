@@ -9,7 +9,7 @@ export function subscribe(symbol: string, ws: WS) {
   if (activeSubs.has(symbol)) return;
   activeSubs.add(symbol);
 
-  const payload = { guid: "sub_" + Date.now(), method: "sub", data: { instruments: [symbol], mode: "full" } };
+  const payload = { guid: "sub_" + Date.now(), method: "sub", data: { instrumentsKeys: [symbol], mode: "full D30" } };
   ws.send(JSON.stringify(payload));
   logger.info(`Subscribed → ${symbol}`, "Subscription");
 }
