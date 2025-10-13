@@ -18,30 +18,26 @@ export const runtime = "nodejs";
 // 🧩 GET (SSE Stream)
 // =========================
 export async function GET(req: NextRequest) {
-  try {
-    // 1️⃣ — TransformStream உருவாக்குறோம் (Readable → Client, Writable → Server)
-    const { readable, writable } = new TransformStream();
+  // 1️⃣ — TransformStream உருவாக்குறோம் (Readable → Client, Writable → Server)
+  const { readable, writable } = new TransformStream();
 
-    // Writable Writer
-    const writer = writable.getWriter();
+  // Writable Writer
+  const writer = writable.getWriter();
 
-    // 2️⃣ — Upstox SmartFeed instance எடுக்குறோம்
-    const feed = await getSmartFeed();
+  // 2️⃣ — Upstox SmartFeed instance எடுக்குறோம்
+  const feed = await getSmartFeed();
 
-    // Unique ID — Debug log க்கு
-    const id = Math.random().toString(36).slice(2, 8);
-    logger.info(`SSE client connected (${id})`, "LiveStream");
+  // Unique ID — Debug log க்கு
+  const id = Math.random().toString(36).slice(2, 8);
+  logger.info(`SSE client connected (${id})`, "LiveStream");
 
   // 3️⃣ — Tick வரும்போது ஒவ்வொரு data packet-ஐ JSON serialize பண்ணி client-க்கு push பண்ணும் function
   const onTick = (payload: any) => {
     try {
       // Feed event வந்த உடனே client-க்கு data அனுப்புறோம்
-      const data = `data: ${JSON.stringify(payload)}\n\n`;
-      writer.write(data).catch((err) => {
-        logger.error(`Stream write failed: ${(err as Error).message}`, "LiveStream");
-      });
+      writer.write(`data: ${JSON.stringify(payload)}\n\n`);
     } catch (err) {
-      logger.error(`Stream data preparation failed: ${(err as Error).message}`, "LiveStream");
+      logger.error(`Stream write failed: ${(err as Error).message}`, "LiveStream");
     }
   };
 
@@ -50,15 +46,9 @@ export async function GET(req: NextRequest) {
 
   // 5️⃣ — Client tab/browser close ஆச்சுன்னா → cleanup
   req.signal.addEventListener("abort", () => {
-    try {
-      feed.off("tick", onTick);
-      writer.close().catch((err) => {
-        logger.error(`Error closing writer: ${(err as Error).message}`, "LiveStream");
-      });
-      logger.warn(`SSE client disconnected (${id})`, "LiveStream");
-    } catch (err) {
-      logger.error(`Cleanup error: ${(err as Error).message}`, "LiveStream");
-    }
+    feed.off("tick", onTick);
+    writer.close();
+    logger.warn(`SSE client disconnected (${id})`, "LiveStream");
   });
 
   // 6️⃣ — Response headers → event-stream format
@@ -69,14 +59,6 @@ export async function GET(req: NextRequest) {
       Connection: "keep-alive",
     },
   });
-
-  } catch (error) {
-    logger.error(`SSE setup failed: ${(error as Error).message}`, "LiveStream");
-    return new Response("Internal Server Error", {
-      status: 500,
-      headers: {
-        "Content-Type": "text/plain",
-      },
-    });
-  }
 }
+
+

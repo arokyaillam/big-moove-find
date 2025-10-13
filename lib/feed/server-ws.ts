@@ -143,168 +143,30 @@ export class SmartFeedManager extends EventEmitter {
               }
 
               // Handle different message types from Upstox v3 API
-if (decoded.type === "marketInfo") {
-  // This is market info data, not feed data - but it might contain feed data
-  logger.system(`[FeedDecode] Market info received: ${JSON.stringify(decoded)}`, "SmartFeed");
-  // Continue processing as it might have feeds
-}
-
-const feeds = decoded.feeds as Record<string, FeedValue> | undefined;
-if (!feeds) {
-  logger.system(`[FeedDecode] No feeds in decoded message, checking for marketInfo data`, "SmartFeed");
-  // Check if this is market info with embedded feed data
-  if (decoded.marketInfo) {
-    logger.system(`[FeedDecode] Found marketInfo, processing as feed data`, "SmartFeed");
-    // Convert marketInfo to feeds format if needed
-    // For now, just log and continue
-  }
-  // Don't return here - let the code continue to see if we can process other data
-}
-
-// Create the complete market data structure for each instrument
-const completeFeedData: FeedResponseShape = {
-  type: "live_feed",
-  feeds: {},
-  currentTs: new Date().toISOString()
-};
-
-for (const [symbol, feedValue] of Object.entries(feeds || {})) {
-  // Extract LTP for tracking
-  const ltp = Number(
-    feedValue?.fullFeed?.marketFF?.ltpc?.ltp ??
-    feedValue?.ltpc?.ltp ??
-    feedValue?.firstLevelWithGreeks?.ltpc?.ltp ??
-    0
-  );
-
-  this.cache[symbol] = { ltp };
-
-  // Build complete market data structure exactly like the sample
-  if (feedValue?.fullFeed?.marketFF) {
-    const marketFF = feedValue.fullFeed.marketFF;
-
-    // Generate comprehensive bid/ask quotes (30 levels like sample)
-    const bidAskQuotes = [];
-    const baseBid = marketFF.ltpc?.ltp || 0;
-    const spread = 0.05; // 5 paisa spread
-
-    for (let i = 0; i < 30; i++) {
-      const levelSpread = spread * (i + 1);
-      bidAskQuotes.push({
-        bidQ: Math.floor(75 + Math.random() * 600).toString(),
-        bidP: baseBid - levelSpread + (Math.random() - 0.5) * 0.1,
-        askQ: Math.floor(150 + Math.random() * 600).toString(),
-        askP: baseBid + levelSpread + (Math.random() - 0.5) * 0.1
-      });
-    }
-
-    // Build complete instrument data structure
-    (completeFeedData.feeds as any)[symbol] = {
-      fullFeed: {
-        marketFF: {
-          ltpc: {
-            ltp: ltp,
-            ltt: marketFF.ltpc?.ltt || Date.now().toString(),
-            ltq: marketFF.ltpc?.ltq || "75",
-            cp: marketFF.ltpc?.cp || ltp - 5
-          },
-          marketLevel: {
-            bidAskQuote: bidAskQuotes
-          },
-          optionGreeks: {
-            delta: marketFF.optionGreeks?.delta || 0.4519,
-            theta: marketFF.optionGreeks?.theta || -17.6157,
-            gamma: marketFF.optionGreeks?.gamma || 0.0007,
-            vega: marketFF.optionGreeks?.vega || 12.7741,
-            rho: marketFF.optionGreeks?.rho || 1.8554,
-            iv: marketFF.iv || 0.1685333251953125
-          },
-          marketOHLC: {
-            ohlc: [
-              {
-                interval: "1d",
-                open: marketFF.marketOHLC?.ohlc?.[0]?.open || ltp - 10,
-                high: marketFF.marketOHLC?.ohlc?.[0]?.high || ltp + 15,
-                low: marketFF.marketOHLC?.ohlc?.[0]?.low || ltp - 20,
-                close: ltp,
-                vol: marketFF.marketOHLC?.ohlc?.[0]?.vol || "119686575",
-                ts: marketFF.marketOHLC?.ohlc?.[0]?.ts || "1747938600000"
-              },
-              {
-                interval: "I1",
-                open: ltp - 2,
-                high: ltp + 3,
-                low: ltp - 4,
-                close: ltp,
-                vol: Math.floor(200000 + Math.random() * 100000).toString(),
-                ts: Date.now().toString()
+              if (decoded.type === "marketInfo") {
+                logger.system(`[FeedDecode] Market info received: ${JSON.stringify(decoded)}`, "SmartFeed");
               }
-            ]
-          },
-          atp: marketFF.atp || ltp - 10,
-          vtt: marketFF.vtt || "119687250",
-          oi: marketFF.oi || "8326800",
-          iv: marketFF.iv || 0.1685333251953125,
-          tbq: marketFF.tbq || "4185525",
-          tsq: marketFF.tsq || "901350"
-        },
-        requestMode: "full_d30"
-      }
-    };
 
-    // Run big move analysis for alerts
-    const result = this.detector.analyze(symbol, feedValue);
-    if (result && result.score >= 35) {
-      logger.info(`Big move detected ${symbol} | LTP=${ltp} | score=${result.score.toFixed(2)}`, "SmartFeed");
-      this.emit("tick", {
-        symbol,
-        ...result,
-        ltp,
-        timestamp: new Date().toISOString(),
-        type: "big_move_alert"
-      });
-    }
-  }
-}
+              const feeds = decoded.feeds as Record<string, FeedValue> | undefined;
+              
+              // Directly emit the decoded JSON data to the stream
+              if (decoded) {
+                logger.system(`[FeedEmit] Emitting raw JSON data: ${JSON.stringify(decoded).substring(0, 200)}...`, "SmartFeed");
+                this.emit("tick", decoded);
+              }
 
-// Emit complete market data structure
-if (Object.keys(completeFeedData.feeds || {}).length > 0) {
-  logger.system(`[FeedEmit] Emitting complete feed data for ${Object.keys(completeFeedData.feeds || {}).length} instruments`, "SmartFeed");
-  this.emit("tick", completeFeedData);
-} else {
-  logger.system(`[FeedEmit] No instruments to emit`, "SmartFeed");
-}
-
-// Always emit individual tick data for each instrument for compatibility
-if (feeds && Object.keys(feeds).length > 0) {
-  for (const [symbol, feedValue] of Object.entries(feeds)) {
-    const ltp = Number(
-      feedValue?.fullFeed?.marketFF?.ltpc?.ltp ??
-      feedValue?.ltpc?.ltp ??
-      feedValue?.firstLevelWithGreeks?.ltpc?.ltp ??
-      0
-    );
-
-    logger.system(`[FeedEmit] Emitting individual tick for ${symbol}: LTP=${ltp}`, "SmartFeed");
-    this.emit("tick", {
-      symbol,
-      ltp,
-      timestamp: new Date().toISOString(),
-      type: "market_update",
-      feedValue
-    });
-  }
-} else {
-  // Emit a basic tick for any message received to test streaming
-  logger.system(`[FeedEmit] Emitting test tick for any message`, "SmartFeed");
-  this.emit("tick", {
-    symbol: "TEST",
-    ltp: 100,
-    timestamp: new Date().toISOString(),
-    type: "market_update",
-    feedValue: null
-  });
-}
+              // Extract LTP for cache if feeds exist
+              if (feeds) {
+                for (const [symbol, feedValue] of Object.entries(feeds)) {
+                  const ltp = Number(
+                    feedValue?.fullFeed?.marketFF?.ltpc?.ltp ??
+                    feedValue?.ltpc?.ltp ??
+                    feedValue?.firstLevelWithGreeks?.ltpc?.ltp ??
+                    0
+                  );
+                  this.cache[symbol] = { ltp };
+                }
+              }
             } catch (e: any) {
               logger.error(`Decode error: ${e.message}`, "SmartFeed");
             }

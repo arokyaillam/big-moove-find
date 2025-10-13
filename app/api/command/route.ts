@@ -1,18 +1,24 @@
+// app/api/command/route.ts - Enhanced Version
+
 import { NextRequest } from "next/server";
 import { getSmartFeed } from "@/lib/feed/server-ws";
-import { subscribe, unsubscribe } from "@/lib/feed/subscription";
+import { subscribe, unsubscribe, isSubscribed } from "@/lib/feed/subscription";
 import { logger } from "@/lib/logger";
 import WS from "ws";
 import { normalizeSymbol } from "@/lib/utils/symbol";
 
 export const runtime = "nodejs";
 
-async function waitForWsOpen(feed: any, timeout = 7000): Promise<WS> {
+async function waitForWsOpen(feed: any, timeout = 10000): Promise<WS> {
   const start = Date.now();
   while (Date.now() - start < timeout) {
     const ws = feed.ws as WS | null;
-    if (ws && ws.readyState === ws.OPEN) return ws;
-    await new Promise((r) => setTimeout(r, 300));
+    if (ws && ws.readyState === ws.OPEN) {
+      logger.system("WebSocket is OPEN and ready", "Command");
+      return ws;
+    }
+    logger.system(`Waiting for WebSocket... (state: ${ws?.readyState})`, "Command");
+    await new Promise((r) => setTimeout(r, 500));
   }
   throw new Error("WebSocket not ready after timeout");
 }
@@ -34,7 +40,7 @@ export async function POST(req: NextRequest) {
     let type = searchParams.get("type");
     let rawSymbol = searchParams.get("symbol");
 
-    // ✅ Try to parse JSON body (for batch requests)
+    // Parse JSON body for batch requests
     let body: any = {};
     if (req.headers.get("content-type")?.includes("application/json")) {
       try {
@@ -49,46 +55,125 @@ export async function POST(req: NextRequest) {
     type = body.type || type;
 
     if (!symbols.length) {
-      return new Response("Symbol required", { status: 400 });
+      logger.error("No symbols provided in request", "Command");
+      return new Response(JSON.stringify({ 
+        ok: false, 
+        error: "Symbol required" 
+      }), { 
+        status: 400,
+        headers: { "Content-Type": "application/json" }
+      });
     }
 
     if (!["sub", "unsub"].includes(type ?? "")) {
-      return new Response("Invalid type", { status: 400 });
+      logger.error(`Invalid type: ${type}`, "Command");
+      return new Response(JSON.stringify({ 
+        ok: false, 
+        error: "Invalid type. Use 'sub' or 'unsub'" 
+      }), { 
+        status: 400,
+        headers: { "Content-Type": "application/json" }
+      });
     }
 
+    logger.system(`Command received: type=${type}, symbols=${symbols.join(", ")}`, "Command");
+
+    // Get feed instance
     const feed = await getSmartFeed();
-    logger.system(`Command received: type=${type}, count=${symbols.length}`, "Command");
-
-    // Check if feed is properly connected before proceeding
+    
+    // Check feed connection
     if (!feed.isConnected()) {
-      logger.error("Feed not connected for subscription command", "Command");
-      return new Response("Feed not connected", { status: 503 });
+      logger.error("Feed not connected", "Command");
+      return new Response(JSON.stringify({ 
+        ok: false, 
+        error: "Feed not connected. Please wait and try again." 
+      }), { 
+        status: 503,
+        headers: { "Content-Type": "application/json" }
+      });
     }
 
-    const ws = await waitForWsOpen(feed);
+    // Wait for WebSocket to be ready
+    let ws: WS;
+    try {
+      ws = await waitForWsOpen(feed);
+    } catch (error) {
+      logger.error(`WebSocket not ready: ${error}`, "Command");
+      return new Response(JSON.stringify({ 
+        ok: false, 
+        error: "WebSocket not ready" 
+      }), { 
+        status: 503,
+        headers: { "Content-Type": "application/json" }
+      });
+    }
 
+    // Process each symbol
     const results = [];
     for (const sym of symbols) {
       const symbol = normalizeSymbol(sym);
+      
       try {
         if (type === "sub") {
+          // Check if already subscribed
+          if (isSubscribed(symbol)) {
+            logger.warn(`${symbol} already subscribed, skipping`, "Command");
+            results.push({ 
+              symbol, 
+              action: "already_subscribed",
+              status: "skipped"
+            });
+            continue;
+          }
+
           subscribe(symbol, ws);
-          results.push({ symbol, action: "subscribed" });
+          results.push({ 
+            symbol, 
+            action: "subscribed",
+            status: "success"
+          });
+          logger.system(`✅ Successfully subscribed to ${symbol}`, "Command");
+
         } else {
+          // Unsubscribe
+          if (!isSubscribed(symbol)) {
+            logger.warn(`${symbol} not subscribed, skipping`, "Command");
+            results.push({ 
+              symbol, 
+              action: "not_subscribed",
+              status: "skipped"
+            });
+            continue;
+          }
+
           unsubscribe(symbol, ws);
-          results.push({ symbol, action: "unsubscribed" });
+          results.push({ 
+            symbol, 
+            action: "unsubscribed",
+            status: "success"
+          });
+          logger.system(`❌ Successfully unsubscribed from ${symbol}`, "Command");
         }
+
       } catch (error) {
         logger.error(`Failed to ${type} ${symbol}: ${error}`, "Command");
-        results.push({ symbol, action: "failed", error: String(error) });
+        results.push({ 
+          symbol, 
+          action: "failed", 
+          status: "error",
+          error: String(error) 
+        });
       }
     }
 
+    // Return success response
     return Response.json({
       ok: true,
       action: type,
       count: symbols.length,
-      results
+      successful: results.filter(r => r.status === "success").length,
+      results,
+      timestamp: new Date().toISOString()
     }, {
       headers: {
         "Access-Control-Allow-Origin": "*",
@@ -96,8 +181,18 @@ export async function POST(req: NextRequest) {
         "Access-Control-Allow-Headers": "Content-Type",
       }
     });
+
   } catch (err: any) {
     logger.error(`Command error: ${err.message}`, "Command");
-    return new Response("Internal error", { status: 500 });
+    logger.error(`Stack: ${err.stack}`, "Command");
+    
+    return new Response(JSON.stringify({ 
+      ok: false, 
+      error: "Internal server error",
+      message: err.message 
+    }), { 
+      status: 500,
+      headers: { "Content-Type": "application/json" }
+    });
   }
-}
+};
