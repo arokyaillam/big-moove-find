@@ -1,47 +1,47 @@
-import fs from "fs";
-import path from "path";
-import { BigMoveDetector } from "@/lib/analytics/BigMoveDetector";
-import { logger } from "@/lib/logger";
+import { NextRequest } from "next/server";
 
-export async function GET() {
-  // Load JSON feed from file
-  const filePath = path.resolve("lib/tests/sample_feed.json");
-  const raw = fs.readFileSync(filePath, "utf-8");
-  const data = JSON.parse(raw);
+export const runtime = "nodejs";
 
-  const detector = new BigMoveDetector();
-  const encoder = new TextEncoder();
+export async function GET(req: NextRequest) {
+  const { readable, writable } = new TransformStream();
+  const writer = writable.getWriter();
 
-  // Create a readable SSE stream
-  const body = new ReadableStream({
-    async start(controller) {
-      for (const [symbol, feed] of Object.entries(data.feeds)) {
-        if (symbol === "currentTs") continue;
+  let counter = 0;
+  const sendTick = () => {
+    const payload = {
+      symbol: "NSE_FO|61755",
+      score: 35 + Math.random() * 70, // random score 35–100
+      alertLevel: "WATCH",
+      metrics: {
+        volumeRatio: Math.random() * 10,
+        obRatio: Math.random() * 5,
+        priceRange: Math.random() * 3,
+        ltp: 180 + Math.random() * 5,
+      },
+      signals: [
+        { type: "INFO", title: "Simulated Feed", message: "Test tick " + counter },
+      ],
+      timestamp: Date.now(),
+    };
 
-        const result = detector.analyze(symbol, feed as any);
+    writer.write(`data: ${JSON.stringify(payload)}\n\n`);
+    counter++;
+  };
 
-        // convert to JSON string
-        const packet = JSON.stringify({
-          symbol,
-          ...result,
-          timestamp: Date.now(),
-        });
+  // 🟢 Send a tick every 3 seconds
+  const interval = setInterval(sendTick, 3000);
+  sendTick();
 
-        // Emit one SSE event
-        controller.enqueue(encoder.encode(`data: ${packet}\n\n`));
-
-        logger.info(`[TEST-FEED] Emitted ${symbol} (${result?.alertLevel})`);
-      }
-
-      // Close connection after sending all
-      controller.close();
-    },
+  req.signal.addEventListener("abort", () => {
+    clearInterval(interval);
+    writer.close();
+    console.log("[TEST-FEED] client disconnected");
   });
 
-  return new Response(body, {
+  return new Response(readable, {
     headers: {
       "Content-Type": "text/event-stream",
-      "Cache-Control": "no-cache",
+      "Cache-Control": "no-cache, no-transform",
       Connection: "keep-alive",
     },
   });

@@ -8,7 +8,7 @@ export function useSSEFeed() {
   const setStatus = useSetStatus();
 
   useEffect(() => {
-    const es = new EventSource("/api/test-feed");
+    const es = new EventSource("/api/stream");
     logger.system("Connecting SSE...", "FeedClient");
     es.onopen = () => setStatus("connected");
     es.onerror = () => setStatus("disconnected");
