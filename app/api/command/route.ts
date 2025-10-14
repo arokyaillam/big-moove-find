@@ -1,4 +1,4 @@
-// app/api/command/route.ts - Enhanced Version
+// app/api/command/route.ts - Updated to emit immediately
 
 import { NextRequest } from "next/server";
 import { getSmartFeed } from "@/lib/feed/server-ws";
@@ -14,10 +14,8 @@ async function waitForWsOpen(feed: any, timeout = 10000): Promise<WS> {
   while (Date.now() - start < timeout) {
     const ws = feed.ws as WS | null;
     if (ws && ws.readyState === ws.OPEN) {
-      logger.system("WebSocket is OPEN and ready", "Command");
       return ws;
     }
-    logger.system(`Waiting for WebSocket... (state: ${ws?.readyState})`, "Command");
     await new Promise((r) => setTimeout(r, 500));
   }
   throw new Error("WebSocket not ready after timeout");
@@ -40,7 +38,6 @@ export async function POST(req: NextRequest) {
     let type = searchParams.get("type");
     let rawSymbol = searchParams.get("symbol");
 
-    // Parse JSON body for batch requests
     let body: any = {};
     if (req.headers.get("content-type")?.includes("application/json")) {
       try {
@@ -50,12 +47,10 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // Merge query params + body payload
     const symbols = body.symbols || (rawSymbol ? [rawSymbol] : []);
     type = body.type || type;
 
     if (!symbols.length) {
-      logger.error("No symbols provided in request", "Command");
       return new Response(JSON.stringify({ 
         ok: false, 
         error: "Symbol required" 
@@ -66,58 +61,39 @@ export async function POST(req: NextRequest) {
     }
 
     if (!["sub", "unsub"].includes(type ?? "")) {
-      logger.error(`Invalid type: ${type}`, "Command");
       return new Response(JSON.stringify({ 
         ok: false, 
-        error: "Invalid type. Use 'sub' or 'unsub'" 
+        error: "Invalid type" 
       }), { 
         status: 400,
         headers: { "Content-Type": "application/json" }
       });
     }
 
-    logger.system(`Command received: type=${type}, symbols=${symbols.join(", ")}`, "Command");
+    logger.system(`Command: ${type} for ${symbols.length} symbols`, "Command");
 
-    // Get feed instance
     const feed = await getSmartFeed();
     
-    // Check feed connection
     if (!feed.isConnected()) {
       logger.error("Feed not connected", "Command");
       return new Response(JSON.stringify({ 
         ok: false, 
-        error: "Feed not connected. Please wait and try again." 
+        error: "Feed not connected" 
       }), { 
         status: 503,
         headers: { "Content-Type": "application/json" }
       });
     }
 
-    // Wait for WebSocket to be ready
-    let ws: WS;
-    try {
-      ws = await waitForWsOpen(feed);
-    } catch (error) {
-      logger.error(`WebSocket not ready: ${error}`, "Command");
-      return new Response(JSON.stringify({ 
-        ok: false, 
-        error: "WebSocket not ready" 
-      }), { 
-        status: 503,
-        headers: { "Content-Type": "application/json" }
-      });
-    }
+    const ws = await waitForWsOpen(feed);
 
-    // Process each symbol
     const results = [];
     for (const sym of symbols) {
       const symbol = normalizeSymbol(sym);
       
       try {
         if (type === "sub") {
-          // Check if already subscribed
           if (isSubscribed(symbol)) {
-            logger.warn(`${symbol} already subscribed, skipping`, "Command");
             results.push({ 
               symbol, 
               action: "already_subscribed",
@@ -126,18 +102,23 @@ export async function POST(req: NextRequest) {
             continue;
           }
 
-          subscribe(symbol, ws);
+          // ✅ Pass feed manager to enable immediate emit
+          subscribe(symbol, ws, feed);
+          
+          // ✅ EMIT INITIAL/CACHED DATA IMMEDIATELY
+          feed.emitInitialData(symbol);
+
           results.push({ 
             symbol, 
             action: "subscribed",
-            status: "success"
+            status: "success",
+            emitted: true
           });
-          logger.system(`✅ Successfully subscribed to ${symbol}`, "Command");
+          
+          logger.system(`✅ Subscribed & emitted for ${symbol}`, "Command");
 
         } else {
-          // Unsubscribe
           if (!isSubscribed(symbol)) {
-            logger.warn(`${symbol} not subscribed, skipping`, "Command");
             results.push({ 
               symbol, 
               action: "not_subscribed",
@@ -146,13 +127,16 @@ export async function POST(req: NextRequest) {
             continue;
           }
 
-          unsubscribe(symbol, ws);
+          // ✅ Pass feed manager for unsubscribe
+          unsubscribe(symbol, ws, feed);
+          
           results.push({ 
             symbol, 
             action: "unsubscribed",
             status: "success"
           });
-          logger.system(`❌ Successfully unsubscribed from ${symbol}`, "Command");
+          
+          logger.system(`❌ Unsubscribed ${symbol}`, "Command");
         }
 
       } catch (error) {
@@ -166,7 +150,6 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // Return success response
     return Response.json({
       ok: true,
       action: type,
@@ -184,7 +167,6 @@ export async function POST(req: NextRequest) {
 
   } catch (err: any) {
     logger.error(`Command error: ${err.message}`, "Command");
-    logger.error(`Stack: ${err.stack}`, "Command");
     
     return new Response(JSON.stringify({ 
       ok: false, 
@@ -195,4 +177,4 @@ export async function POST(req: NextRequest) {
       headers: { "Content-Type": "application/json" }
     });
   }
-};
+}
