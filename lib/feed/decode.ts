@@ -10,7 +10,10 @@ export async function loadProto(): Promise<protobuf.Root> {
   if (root) return root;
   const protoPath = path.join(process.cwd(), "lib", "feed", "proto", "MarketDataFeedV3.proto");
   logger.system(`Loading proto: ${protoPath}`, "Decoder");
-  root = await protobuf.load(protoPath);
+  root = await protobuf.load(protoPath).catch((e) => {
+    logger.error(`Proto file missing: ${e}`, "Decoder");
+    throw e;
+  });
   FeedResponse = root.lookupType("com.upstox.marketdatafeederv3udapi.rpc.proto.FeedResponse");
   if (!FeedResponse) throw new Error("FeedResponse type not found");
   logger.system("FeedResponse type loaded", "Decoder");

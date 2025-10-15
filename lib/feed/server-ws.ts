@@ -1,27 +1,20 @@
-// lib/feed/server-ws.ts - FIXED VERSION
-
+// lib/feed/server-ws.ts
 import WS, { RawData } from "ws";
 import EventEmitter from "events";
 import { logger } from "@/lib/logger";
 import { decodeMessageBinary, loadProto } from "./decode";
 import { BigMoveDetector } from "@/lib/analytics/BigMoveDetector";
-import type { FeedResponseShape, FeedValue } from "./types";
+import type { FeedResponseShape } from "./types";
 
 async function getAuthorizedWssUrl(): Promise<string> {
-  if (!process.env.UPSTOX_TOKEN) {
-    throw new Error("UPSTOX_TOKEN not set");
-  }
-
+  if (!process.env.UPSTOX_TOKEN) throw new Error("UPSTOX_TOKEN not set");
   const res = await fetch("https://api.upstox.com/v3/feed/market-data-feed/authorize", {
     headers: { Authorization: `Bearer ${process.env.UPSTOX_TOKEN}` },
   });
-
   if (!res.ok) throw new Error(`Auth failed: ${res.status}`);
-  
   const j = await res.json();
   const url = j?.data?.authorized_redirect_uri;
   if (!url) throw new Error("No authorized URL");
-  
   return url;
 }
 
@@ -39,7 +32,6 @@ export class SmartFeedManager extends EventEmitter {
   async connect() {
     if (this.isConnecting || this.isConnected()) return;
     this.isConnecting = true;
-
     await loadProto();
     logger.system("Protobuf loaded", "SmartFeed");
 
@@ -56,13 +48,10 @@ export class SmartFeedManager extends EventEmitter {
 
     this.ws.on("message", async (msg: RawData) => {
       try {
-        // Convert to Uint8Array
         let bytes: Uint8Array;
-        if (msg instanceof Buffer) {
-          bytes = new Uint8Array(msg);
-        } else if (msg instanceof ArrayBuffer) {
-          bytes = new Uint8Array(msg);
-        } else if (Array.isArray(msg)) {
+        if (msg instanceof Buffer) bytes = new Uint8Array(msg);
+        else if (msg instanceof ArrayBuffer) bytes = new Uint8Array(msg);
+        else if (Array.isArray(msg)) {
           const total = msg.reduce((n, b) => n + b.byteLength, 0);
           bytes = new Uint8Array(total);
           let offset = 0;
@@ -71,23 +60,53 @@ export class SmartFeedManager extends EventEmitter {
             bytes.set(v, offset);
             offset += v.byteLength;
           }
-        } else {
-          return;
-        }
+        } else return;
 
         this.stats.messages++;
-
-        // Decode protobuf
         const decoded: FeedResponseShape = await decodeMessageBinary(bytes);
-        
         logger.system(`[Decoded] Type: ${decoded.type}, Feeds: ${Object.keys(decoded.feeds || {}).length}`, "SmartFeed");
 
-        // ✅ EMIT RAW DECODED DATA IMMEDIATELY
-        this.emit("tick", decoded);
+        // Slim tick – only fields that exist in your proto
+        for (const [symbol, feedValue] of Object.entries(decoded.feeds || {})) {
+          const ltp = Number(
+            feedValue?.fullFeed?.marketFF?.ltpc?.ltp ??
+            feedValue?.ltpc?.ltp ??
+            feedValue?.firstLevelWithGreeks?.ltpc?.ltp ??
+            0
+          );
+          this.cache[symbol] = { ltp };
 
-        // Also process for analytics
-        this.processFeeds(decoded);
+          const volume = Number(feedValue?.fullFeed?.marketFF?.ltpc?.volume ?? 0);
+          const bid = Number(feedValue?.fullFeed?.marketFF?.bidAskQuote?.bid?.[0]?.price ?? 0);
+          const ask = Number(feedValue?.fullFeed?.marketFF?.bidAskQuote?.ask?.[0]?.price ?? 0);
 
+          this.emit("tick", {
+            type: "tick",
+            symbol,
+            ltp,
+            volume,
+            bid,
+            ask,
+            timestamp: new Date().toISOString(),
+          });
+        }
+
+        // Big-move alert (slim)
+        for (const [symbol, feedValue] of Object.entries(decoded.feeds || {})) {
+          if (feedValue?.fullFeed?.marketFF) {
+            const result = this.detector.analyze(symbol, feedValue);
+            if (result && result.score >= 35) {
+              logger.info(`Big move: ${symbol} score=${result.score}`, "SmartFeed");
+              this.emit("tick", {
+                type: "big_move_alert",
+                symbol,
+                ...result,
+                ltp: this.cache[symbol]?.ltp ?? 0,
+                timestamp: new Date().toISOString(),
+              });
+            }
+          }
+        }
       } catch (e: any) {
         logger.error(`Message error: ${e.message}`, "SmartFeed");
       }
@@ -105,63 +124,20 @@ export class SmartFeedManager extends EventEmitter {
     });
   }
 
-  private processFeeds(decoded: FeedResponseShape) {
-    const feeds = decoded.feeds || {};
-    
-    for (const [symbol, feedValue] of Object.entries(feeds)) {
-      // Extract LTP
-      const ltp = Number(
-        feedValue?.fullFeed?.marketFF?.ltpc?.ltp ??
-        feedValue?.ltpc?.ltp ??
-        feedValue?.firstLevelWithGreeks?.ltpc?.ltp ??
-        0
-      );
-
-      // Update cache
-      this.cache[symbol] = { ltp };
-
-      // Run analytics if full feed available
-      if (feedValue?.fullFeed?.marketFF) {
-        const result = this.detector.analyze(symbol, feedValue);
-        
-        if (result && result.score >= 35) {
-          logger.info(`Big move: ${symbol} score=${result.score}`, "SmartFeed");
-          
-          // Emit big move alert
-          this.emit("tick", {
-            type: "big_move_alert",
-            symbol,
-            ...result,
-            ltp,
-            timestamp: new Date().toISOString(),
-            feedValue
-          });
-        }
-      }
-    }
-  }
-
-  // Emit initial cached data to new SSE clients
-  emitInitialData(writer: WritableStreamDefaultWriter) {
+  async emitInitialData(writer: WritableStreamDefaultWriter) {
     const encoder = new TextEncoder();
-    
     for (const [symbol, data] of Object.entries(this.cache)) {
       const payload = {
         type: "cached_data",
         symbol,
         alertLevel: "NORMAL",
         score: 0,
-        metrics: {
-          ltp: data.ltp,
-          volumeRatio: 0,
-          priceRange: 0,
-          obRatio: 0
-        },
-        timestamp: new Date().toISOString()
+        metrics: { ltp: data.ltp, volumeRatio: 0, priceRange: 0, obRatio: 0 },
+        timestamp: new Date().toISOString(),
       };
-      
-      writer.write(encoder.encode(`data: ${JSON.stringify(payload)}\n\n`)).catch(() => {});
+      await writer.write(encoder.encode(`data: ${JSON.stringify(payload)}\n\n`));
     }
+    await writer.write(encoder.encode(":\n\n"));
   }
 
   getStatus() {
@@ -174,14 +150,15 @@ export class SmartFeedManager extends EventEmitter {
   }
 }
 
-// Singleton
+// Singleton with crash-on-startup so docker/pm2 restarts
 if (!(global as any).__smartFeedSingleton) {
   (global as any).__smartFeedSingleton = new SmartFeedManager();
   (global as any).__smartFeedSingleton.connect().catch((err: Error) => {
     logger.error(`Initial connect failed: ${err}`, "SmartFeed");
+    process.exit(1);
   });
 }
 
 export function getSmartFeed(): SmartFeedManager {
   return (global as any).__smartFeedSingleton as SmartFeedManager;
-};
+}
