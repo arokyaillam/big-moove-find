@@ -4,7 +4,6 @@ import WS from "ws";
 import { getSmartFeed } from "@/lib/feed/server-ws";
 import { subscribe, unsubscribe, isSubscribed } from "@/lib/feed/subscription";
 import { logger } from "@/lib/logger";
-import { normalizeSymbol } from "@/lib/utils/symbol";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -72,7 +71,7 @@ export async function POST(req: NextRequest) {
     const results = [];
 
     for (const sym of symbols) {
-      const symbol = normalizeSymbol(sym);
+      const symbol = sym;
       
       try {
         if (finalType === "sub") {

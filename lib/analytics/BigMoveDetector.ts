@@ -17,8 +17,8 @@ export class BigMoveDetector {
    * Extract relevant feed section
    */
   extractMarketData(feedValue: Record<string, unknown>) {
-    if (feedValue?.fullFeed?.marketFF) {
-      return feedValue.fullFeed.marketFF;
+    if (feedValue.fullFeed && typeof feedValue.fullFeed === 'object' && 'marketFF' in feedValue.fullFeed) {
+      return (feedValue.fullFeed as { marketFF: unknown }).marketFF;
     } else if (feedValue?.ltpc) {
       return { ltpc: feedValue.ltpc };
     } else if (feedValue?.firstLevelWithGreeks) {
@@ -40,16 +40,18 @@ export class BigMoveDetector {
    * Core analysis - updated for comprehensive market data
    */
   analyze(symbol: string, feedValue: Record<string, unknown>) {
-    const mff = feedValue?.fullFeed?.marketFF;
+    const mff = feedValue.fullFeed && typeof feedValue.fullFeed === 'object' && 'marketFF' in feedValue.fullFeed
+      ? (feedValue.fullFeed as { marketFF: Record<string, unknown> }).marketFF
+      : null;
     if (!mff) return null;
 
-    const ltp = this.toNum(mff.ltpc?.ltp);
+    const ltp = this.toNum((mff.ltpc as Record<string, unknown>)?.ltp);
     const volume = this.toNum(mff.vtt);
     const tbq = this.toNum(mff.tbq);
     const tsq = this.toNum(mff.tsq);
-    const gamma = this.toNum(mff.optionGreeks?.gamma);
-    const delta = this.toNum(mff.optionGreeks?.delta);
-    const iv = this.toNum(mff.optionGreeks?.iv);
+    const gamma = this.toNum((mff.optionGreeks as Record<string, unknown>)?.gamma);
+    const delta = this.toNum((mff.optionGreeks as Record<string, unknown>)?.delta);
+    const iv = this.toNum((mff.optionGreeks as Record<string, unknown>)?.iv);
 
     // === Volume ratio
     const avgVol = this.avgVolumes.get(symbol) || (volume / 10 || 1);
@@ -60,14 +62,18 @@ export class BigMoveDetector {
     const obRatio = tsq > 0 ? tbq / tsq : 0;
 
     // === Price range (use 1-minute candle if available)
-    const candles = mff.marketOHLC?.ohlc || [];
+    const candles = Array.isArray((mff.marketOHLC as Record<string, unknown>)?.ohlc)
+      ? (mff.marketOHLC as Record<string, unknown>).ohlc as Record<string, unknown>[]
+      : [];
     const candle = candles.find((c: Record<string, unknown>) => c.interval === "I1") ||
                    candles.find((c: Record<string, unknown>) => c.interval === "I15") ||
                    candles[0];
 
     let priceRange = 0;
-    if (candle && candle.low > 0) {
-      priceRange = ((candle.high - candle.low) / candle.low) * 100;
+    if (candle && typeof candle === 'object' && candle !== null && 'low' in candle && Number(candle.low) > 0) {
+      const high = Number(candle.high || 0);
+      const low = Number(candle.low || 0);
+      priceRange = ((high - low) / low) * 100;
     }
 
     // === Greeks analysis

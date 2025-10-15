@@ -65,7 +65,16 @@ export class SmartFeedManager extends EventEmitter {
 
         this.stats.messages++;
         const decoded: FeedResponseShape = await decodeMessageBinary(bytes);
-        logger.system(`[Decoded] Type: ${decoded.type}, Feeds: ${Object.keys(decoded.feeds || {}).length}`, "SmartFeed");
+        logger.system(`[Decoded] Type: ${decoded.type || 'live_feed'}, Feeds: ${Object.keys(decoded.feeds || {}).length}`, "SmartFeed");
+
+        // Emit raw protobuf data for market_info and live_feed types
+        if (decoded.type === "market_info" || decoded.type === "live_feed" || !decoded.type) {
+          // Set type to live_feed if not present (for subscription responses)
+          if (!decoded.type) {
+            decoded.type = "live_feed";
+          }
+          this.emit("tick", decoded);
+        }
 
         // Slim tick – only fields that exist in your proto
         for (const [symbol, feedValue] of Object.entries(decoded.feeds || {})) {

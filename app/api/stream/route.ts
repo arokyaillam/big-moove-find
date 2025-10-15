@@ -53,8 +53,10 @@ export async function GET(req: NextRequest) {
         const chunk = `data: ${JSON.stringify(payload)}\n\n`;
         await writer.write(encoder.encode(chunk));
         logger.system(`[SSE-FLOW] H. Written to SSE → ${p.type}`, "Stream");
-      } catch {
-        logger.error(`[SSE-FLOW] I. Write failed for ${clientId}`, "Stream");
+      } catch (error) {
+        logger.error(`[SSE-FLOW] I. Write failed for ${clientId}: ${error}`, "Stream");
+        // Remove listener on write failure to prevent further errors
+        feed.off("tick", onTick);
       }
     };
     feed.on("tick", onTick);

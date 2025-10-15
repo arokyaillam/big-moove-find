@@ -6,7 +6,6 @@ import { logger } from "@/lib/logger";
 
 let root: protobuf.Root | null = null;
 let FeedResponse: protobuf.Type | null = null;
-let FeedRequestType: protobuf.Type | null = null; // For subscription requests
 
 export async function loadProto(): Promise<protobuf.Root> {
   if (root) return root;
@@ -29,38 +28,28 @@ export async function decodeMessageBinary(bytes: Uint8Array): Promise<FeedRespon
   return obj;
 }
 
-// New functions for encoding subscription requests
-async function getFeedRequestType(): Promise<protobuf.Type> {
-  if (!FeedRequestType) {
-    const root = await loadProto();
-    FeedRequestType = root.lookupType("com.upstox.marketdatafeederv3udapi.rpc.proto.FeedRequest");
-    if (!FeedRequestType) throw new Error("FeedRequest type not found in proto");
-  }
-  return FeedRequestType;
-}
+// New functions for encoding subscription requests (removed unused function)
 
-export async function encodeSubscribeRequest(symbols: string[]): Promise<Uint8Array> {
-  const FeedRequest = await getFeedRequestType();
-  const req = FeedRequest.create({
+export async function encodeSubscribeRequest(symbols: string[]): Promise<Buffer> {
+  const data = {
     guid: `sub_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
     method: "sub",
     data: {
-      mode: "full",
+      mode: "full_d30",
       instrumentKeys: symbols,
     }
-  });
-  return FeedRequest.encode(req).finish(); // returns Uint8Array
+  };
+  return Buffer.from(JSON.stringify(data));
 }
 
-export async function encodeUnsubscribeRequest(symbols: string[]): Promise<Uint8Array> {
-  const FeedRequest = await getFeedRequestType();
-  const req = FeedRequest.create({
+export async function encodeUnsubscribeRequest(symbols: string[]): Promise<Buffer> {
+  const data = {
     guid: `unsub_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
     method: "unsub",
     data: {
-      mode: "full",
+      mode: "full_d30",
       instrumentKeys: symbols,
     }
-  });
-  return FeedRequest.encode(req).finish(); // returns Uint8Array
+  };
+  return Buffer.from(JSON.stringify(data));
 }
