@@ -1,4 +1,5 @@
-// ✅ lib/feed/server-ws.ts
+// lib/feed/server-ws.ts - FIXED VERSION
+
 import WS, { RawData } from "ws";
 import EventEmitter from "events";
 import { logger } from "@/lib/logger";
@@ -6,62 +7,41 @@ import { decodeMessageBinary, loadProto } from "./decode";
 import { BigMoveDetector } from "@/lib/analytics/BigMoveDetector";
 import type { FeedResponseShape, FeedValue } from "./types";
 
-// =============================
-// 🔹 Authorize WebSocket URL
-// =============================
 async function getAuthorizedWssUrl(): Promise<string> {
   if (!process.env.UPSTOX_TOKEN) {
-    throw new Error("UPSTOX_TOKEN environment variable is not set");
+    throw new Error("UPSTOX_TOKEN not set");
   }
 
-  logger.system("Authorizing with Upstox Feed API", "SmartFeed");
   const res = await fetch("https://api.upstox.com/v3/feed/market-data-feed/authorize", {
     headers: { Authorization: `Bearer ${process.env.UPSTOX_TOKEN}` },
   });
 
-  if (!res.ok) {
-    const errorText = await res.text();
-    throw new Error(`Authorize failed ${res.status}: ${errorText}`);
-  }
-
+  if (!res.ok) throw new Error(`Auth failed: ${res.status}`);
+  
   const j = await res.json();
   const url = j?.data?.authorized_redirect_uri;
-  if (!url) throw new Error("No authorized_redirect_uri in response");
-
-  logger.system("Authorized feed URL retrieved", "SmartFeed");
+  if (!url) throw new Error("No authorized URL");
+  
   return url;
 }
 
-// =============================
-// 🔹 SmartFeedManager Class
-// =============================
 export class SmartFeedManager extends EventEmitter {
   ws: WS | null = null;
   detector = new BigMoveDetector();
   cache: Record<string, { ltp: number }> = {};
-  private stats = { connectedAt: 0, lastPacketAt: 0, bytesSeen: 0, messages: 0 };
+  private stats = { connectedAt: 0, messages: 0 };
   public isConnecting = false;
-
-  getStatus() {
-    return {
-      wsState: this.ws?.readyState ?? -1,
-      ...this.stats,
-      subs: (global as any).__activeSubs ? Array.from((global as any).__activeSubs) : [],
-    };
-  }
 
   isConnected() {
     return this.ws?.readyState === WS.OPEN;
   }
 
-  // =============================
-  // 🔹 Connect to Upstox Feed
-  // =============================
   async connect() {
     if (this.isConnecting || this.isConnected()) return;
     this.isConnecting = true;
 
     await loadProto();
+    logger.system("Protobuf loaded", "SmartFeed");
 
     const url = await getAuthorizedWssUrl();
     this.ws = new WS(url, { headers: { Origin: "https://api.upstox.com" } });
@@ -70,82 +50,138 @@ export class SmartFeedManager extends EventEmitter {
     this.ws.on("open", () => {
       this.stats.connectedAt = Date.now();
       this.isConnecting = false;
-      logger.system("✅ Connected to Upstox Feed (v3)", "SmartFeed");
+      logger.system("✅ Connected to Upstox", "SmartFeed");
       this.emit("ready");
     });
 
     this.ws.on("message", async (msg: RawData) => {
       try {
-        const bytes = msg instanceof Buffer ? new Uint8Array(msg) : new Uint8Array(msg as ArrayBuffer);
+        // Convert to Uint8Array
+        let bytes: Uint8Array;
+        if (msg instanceof Buffer) {
+          bytes = new Uint8Array(msg);
+        } else if (msg instanceof ArrayBuffer) {
+          bytes = new Uint8Array(msg);
+        } else if (Array.isArray(msg)) {
+          const total = msg.reduce((n, b) => n + b.byteLength, 0);
+          bytes = new Uint8Array(total);
+          let offset = 0;
+          for (const b of msg) {
+            const v = b instanceof ArrayBuffer ? new Uint8Array(b) : new Uint8Array(b.buffer);
+            bytes.set(v, offset);
+            offset += v.byteLength;
+          }
+        } else {
+          return;
+        }
+
+        this.stats.messages++;
+
+        // Decode protobuf
         const decoded: FeedResponseShape = await decodeMessageBinary(bytes);
-        this.handleDecoded(decoded);
+        
+        logger.system(`[Decoded] Type: ${decoded.type}, Feeds: ${Object.keys(decoded.feeds || {}).length}`, "SmartFeed");
+
+        // ✅ EMIT RAW DECODED DATA IMMEDIATELY
+        this.emit("tick", decoded);
+
+        // Also process for analytics
+        this.processFeeds(decoded);
+
       } catch (e: any) {
-        logger.error(`Decode error: ${e.message}`, "SmartFeed");
+        logger.error(`Message error: ${e.message}`, "SmartFeed");
       }
     });
 
     this.ws.on("close", () => {
-      logger.warn("Feed closed, attempting reconnect…", "SmartFeed");
-      this.reconnect();
+      logger.warn("Feed closed, reconnecting...", "SmartFeed");
+      this.isConnecting = false;
+      setTimeout(() => this.connect(), 5000);
     });
 
     this.ws.on("error", (err) => {
-      logger.error(`WebSocket error: ${String(err)}`, "SmartFeed");
-      this.reconnect();
+      logger.error(`WS error: ${err}`, "SmartFeed");
+      this.isConnecting = false;
     });
   }
 
-  private async reconnect() {
-    this.isConnecting = false;
-    setTimeout(() => this.connect(), 5000);
-  }
-
-  // =============================
-  // 🔹 Decode Handler
-  // =============================
-  private handleDecoded(decoded: FeedResponseShape) {
-    const feeds = decoded.feeds ?? {};
+  private processFeeds(decoded: FeedResponseShape) {
+    const feeds = decoded.feeds || {};
+    
     for (const [symbol, feedValue] of Object.entries(feeds)) {
-      const ltp =
+      // Extract LTP
+      const ltp = Number(
         feedValue?.fullFeed?.marketFF?.ltpc?.ltp ??
         feedValue?.ltpc?.ltp ??
         feedValue?.firstLevelWithGreeks?.ltpc?.ltp ??
-        0;
+        0
+      );
 
-      this.cache[symbol] = { ltp: Number(ltp) };
+      // Update cache
+      this.cache[symbol] = { ltp };
 
-      const result = this.detector.analyze(symbol, feedValue);
-      if (result) {
-        this.emit("tick", {
-          symbol,
-          ...result,
-          timestamp: new Date().toISOString(),
-        });
+      // Run analytics if full feed available
+      if (feedValue?.fullFeed?.marketFF) {
+        const result = this.detector.analyze(symbol, feedValue);
+        
+        if (result && result.score >= 35) {
+          logger.info(`Big move: ${symbol} score=${result.score}`, "SmartFeed");
+          
+          // Emit big move alert
+          this.emit("tick", {
+            type: "big_move_alert",
+            symbol,
+            ...result,
+            ltp,
+            timestamp: new Date().toISOString(),
+            feedValue
+          });
+        }
       }
     }
   }
 
-  // =============================
-  // 🔹 Emit Initial Data (for new stream clients)
-  // =============================
+  // Emit initial cached data to new SSE clients
   emitInitialData(writer: WritableStreamDefaultWriter) {
+    const encoder = new TextEncoder();
+    
     for (const [symbol, data] of Object.entries(this.cache)) {
-      const payload = { symbol, ltp: data.ltp, timestamp: new Date().toISOString() };
-      writer.write(`data: ${JSON.stringify(payload)}\n\n`);
+      const payload = {
+        type: "cached_data",
+        symbol,
+        alertLevel: "NORMAL",
+        score: 0,
+        metrics: {
+          ltp: data.ltp,
+          volumeRatio: 0,
+          priceRange: 0,
+          obRatio: 0
+        },
+        timestamp: new Date().toISOString()
+      };
+      
+      writer.write(encoder.encode(`data: ${JSON.stringify(payload)}\n\n`)).catch(() => {});
     }
+  }
+
+  getStatus() {
+    return {
+      wsState: this.ws?.readyState ?? -1,
+      isConnecting: this.isConnecting,
+      ...this.stats,
+      subs: (global as any).__activeSubs ? Array.from((global as any).__activeSubs) : [],
+    };
   }
 }
 
-// =============================
-// 🔹 Singleton Pattern
-// =============================
+// Singleton
 if (!(global as any).__smartFeedSingleton) {
   (global as any).__smartFeedSingleton = new SmartFeedManager();
   (global as any).__smartFeedSingleton.connect().catch((err: Error) => {
-    console.error("Feed connect error:", err);
+    logger.error(`Initial connect failed: ${err}`, "SmartFeed");
   });
 }
 
-export function getSmartFeed() {
+export function getSmartFeed(): SmartFeedManager {
   return (global as any).__smartFeedSingleton as SmartFeedManager;
-}
+};
