@@ -112,6 +112,17 @@ message MarketInfo {
   map<string, MarketStatus> segmentStatus = 1;
 }
 
+message Subscription {
+  string mode = 1;
+  repeated string instrumentKeys = 2;
+}
+
+message FeedRequest {
+  string guid = 1;
+  string method = 2;
+  Subscription data = 3;
+}
+
 message FeedResponse{
   Type type = 1;
   map<string, Feed> feeds = 2;

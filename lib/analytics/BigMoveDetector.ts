@@ -5,7 +5,7 @@
  */
 
 export class BigMoveDetector {
-  history: Map<string, any[]>;
+  history: Map<string, unknown[]>;
   avgVolumes: Map<string, number>;
 
   constructor() {
@@ -16,7 +16,7 @@ export class BigMoveDetector {
   /**
    * Extract relevant feed section
    */
-  extractMarketData(feedValue: any) {
+  extractMarketData(feedValue: Record<string, unknown>) {
     if (feedValue?.fullFeed?.marketFF) {
       return feedValue.fullFeed.marketFF;
     } else if (feedValue?.ltpc) {
@@ -30,7 +30,7 @@ export class BigMoveDetector {
   /**
    * Convert safely to number
    */
-  private toNum(v: any): number {
+  private toNum(v: unknown): number {
     if (v === undefined || v === null) return 0;
     const n = Number(v);
     return Number.isFinite(n) ? n : 0;
@@ -39,7 +39,7 @@ export class BigMoveDetector {
   /**
    * Core analysis - updated for comprehensive market data
    */
-  analyze(symbol: string, feedValue: any) {
+  analyze(symbol: string, feedValue: Record<string, unknown>) {
     const mff = feedValue?.fullFeed?.marketFF;
     if (!mff) return null;
 
@@ -61,8 +61,8 @@ export class BigMoveDetector {
 
     // === Price range (use 1-minute candle if available)
     const candles = mff.marketOHLC?.ohlc || [];
-    const candle = candles.find((c: any) => c.interval === "I1") ||
-                   candles.find((c: any) => c.interval === "I15") ||
+    const candle = candles.find((c: Record<string, unknown>) => c.interval === "I1") ||
+                   candles.find((c: Record<string, unknown>) => c.interval === "I15") ||
                    candles[0];
 
     let priceRange = 0;
@@ -148,7 +148,7 @@ export class BigMoveDetector {
     delta?: number,
     iv?: number
   ) {
-    const signals: any[] = [];
+    const signals: Array<{ type: string; title: string; message: string }> = [];
 
     if (volRatio > 3) {
       signals.push({

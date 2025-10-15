@@ -6,7 +6,7 @@ export function HeatmapBoard() {
 
   // latest alert per symbol
   const latest = Object.values(
-    alerts.reduce((acc: any, a) => {
+    alerts.reduce((acc: Record<string, typeof alerts[0]>, a) => {
       acc[a.symbol] = a;
       return acc;
     }, {})
@@ -21,7 +21,7 @@ export function HeatmapBoard() {
 
   return (
     <div className="grid grid-cols-4 md:grid-cols-6 lg:grid-cols-8 gap-2">
-      {latest.map((a: any) => (
+      {latest.map((a) => (
         <div
           key={a.symbol}
           className={`p-2 rounded text-xs text-center text-white ${levelColor[a.alertLevel]}`}

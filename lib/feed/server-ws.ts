@@ -8,7 +8,7 @@ import type { FeedResponseShape } from "./types";
 
 async function getAuthorizedWssUrl(): Promise<string> {
   if (!process.env.UPSTOX_TOKEN) throw new Error("UPSTOX_TOKEN not set");
-  const res = await fetch("https://api.upstox.com/v3/feed/market-data-feed/authorize", {
+  const res = await fetch("https://api.upstox.com/v3/feed/market-data-feed/authorize", { // Removed trailing spaces
     headers: { Authorization: `Bearer ${process.env.UPSTOX_TOKEN}` },
   });
   if (!res.ok) throw new Error(`Auth failed: ${res.status}`);
@@ -36,6 +36,7 @@ export class SmartFeedManager extends EventEmitter {
     logger.system("Protobuf loaded", "SmartFeed");
 
     const url = await getAuthorizedWssUrl();
+    // Removed trailing spaces from Origin header
     this.ws = new WS(url, { headers: { Origin: "https://api.upstox.com" } });
     this.ws.binaryType = "arraybuffer";
 
@@ -76,9 +77,9 @@ export class SmartFeedManager extends EventEmitter {
           );
           this.cache[symbol] = { ltp };
 
-          const volume = Number(feedValue?.fullFeed?.marketFF?.ltpc?.volume ?? 0);
-          const bid = Number(feedValue?.fullFeed?.marketFF?.bidAskQuote?.bid?.[0]?.price ?? 0);
-          const ask = Number(feedValue?.fullFeed?.marketFF?.bidAskQuote?.ask?.[0]?.price ?? 0);
+          const volume = Number(feedValue?.fullFeed?.marketFF?.vtt ?? 0);
+          const bid = Number(feedValue?.fullFeed?.marketFF?.marketLevel?.bidAskQuote?.[0]?.bidP ?? 0);
+          const ask = Number(feedValue?.fullFeed?.marketFF?.marketLevel?.bidAskQuote?.[0]?.askP ?? 0);
 
           this.emit("tick", {
             type: "tick",
@@ -94,7 +95,7 @@ export class SmartFeedManager extends EventEmitter {
         // Big-move alert (slim)
         for (const [symbol, feedValue] of Object.entries(decoded.feeds || {})) {
           if (feedValue?.fullFeed?.marketFF) {
-            const result = this.detector.analyze(symbol, feedValue);
+            const result = this.detector.analyze(symbol, feedValue as Record<string, unknown>);
             if (result && result.score >= 35) {
               logger.info(`Big move: ${symbol} score=${result.score}`, "SmartFeed");
               this.emit("tick", {
@@ -107,8 +108,9 @@ export class SmartFeedManager extends EventEmitter {
             }
           }
         }
-      } catch (e: any) {
-        logger.error(`Message error: ${e.message}`, "SmartFeed");
+      } catch (e: unknown) {
+        const errorMessage = e instanceof Error ? e.message : String(e);
+        logger.error(`Message error: ${errorMessage}`, "SmartFeed");
       }
     });
 
@@ -124,41 +126,47 @@ export class SmartFeedManager extends EventEmitter {
     });
   }
 
+  // ADDED: Method to emit initial data to an SSE stream writer
   async emitInitialData(writer: WritableStreamDefaultWriter) {
     const encoder = new TextEncoder();
+    // Respect backpressure for each symbol if possible
     for (const [symbol, data] of Object.entries(this.cache)) {
       const payload = {
         type: "cached_data",
         symbol,
-        alertLevel: "NORMAL",
+        alertLevel: "NORMAL" as const,
         score: 0,
         metrics: { ltp: data.ltp, volumeRatio: 0, priceRange: 0, obRatio: 0 },
         timestamp: new Date().toISOString(),
       };
-      await writer.write(encoder.encode(`data: ${JSON.stringify(payload)}\n\n`));
+      await writer.ready; // Wait if the writer is not ready (backpressure)
+      await writer.write(encoder.encode(` ${JSON.stringify(payload)}\n\n`));
     }
+    // Send a final comment to signal end of initial data batch (optional)
+    await writer.ready;
     await writer.write(encoder.encode(":\n\n"));
   }
+
 
   getStatus() {
     return {
       wsState: this.ws?.readyState ?? -1,
       isConnecting: this.isConnecting,
       ...this.stats,
-      subs: (global as any).__activeSubs ? Array.from((global as any).__activeSubs) : [],
+      subs: (global as Record<string, unknown>).__activeSubs ? Array.from((global as Record<string, unknown>).__activeSubs as Set<string>) : [],
     };
   }
 }
 
 // Singleton with crash-on-startup so docker/pm2 restarts
-if (!(global as any).__smartFeedSingleton) {
-  (global as any).__smartFeedSingleton = new SmartFeedManager();
-  (global as any).__smartFeedSingleton.connect().catch((err: Error) => {
+if (!(global as Record<string, unknown>).__smartFeedSingleton) {
+  (global as Record<string, unknown>).__smartFeedSingleton = new SmartFeedManager();
+  ((global as Record<string, unknown>).__smartFeedSingleton as SmartFeedManager).connect().catch((err: Error) => {
     logger.error(`Initial connect failed: ${err}`, "SmartFeed");
-    process.exit(1);
+    process.exit(1); // Crash if initial connect fails
   });
 }
 
 export function getSmartFeed(): SmartFeedManager {
-  return (global as any).__smartFeedSingleton as SmartFeedManager;
+  return (global as Record<string, unknown>).__smartFeedSingleton as SmartFeedManager;
 }

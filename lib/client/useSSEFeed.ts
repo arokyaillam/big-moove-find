@@ -30,10 +30,10 @@ export function useSSEFeed() {
           // Process each instrument in the feed
           for (const [symbol, feedValue] of Object.entries(data.feeds)) {
             if (feedValue && typeof feedValue === 'object') {
-              const fv = feedValue as any; // Type assertion for dynamic access
+              const fv = feedValue as Record<string, unknown>; // Type assertion for dynamic access
 
               // Extract LTP for display
-              const ltp = fv?.fullFeed?.marketFF?.ltpc?.ltp || 0;
+              const ltp = Number((((fv?.fullFeed as Record<string, unknown>)?.marketFF as Record<string, unknown>)?.ltpc as Record<string, unknown>)?.ltp) || 0;
 
               // Create alert object from complete feed data
               const alertData = {
@@ -42,18 +42,18 @@ export function useSSEFeed() {
                 score: 0,
                 metrics: {
                   ltp: ltp,
-                  volumeRatio: Number(fv?.fullFeed?.marketFF?.vtt) || 0,
+                  volumeRatio: Number((((fv?.fullFeed as Record<string, unknown>)?.marketFF as Record<string, unknown>)?.vtt)) || 0,
                   priceRange: 0,
-                  obRatio: fv?.fullFeed?.marketFF?.tbq && fv?.fullFeed?.marketFF?.tsq
-                    ? Number(fv.fullFeed.marketFF.tbq) / Number(fv.fullFeed.marketFF.tsq)
+                  obRatio: (((fv?.fullFeed as Record<string, unknown>)?.marketFF as Record<string, unknown>)?.tbq) && (((fv?.fullFeed as Record<string, unknown>)?.marketFF as Record<string, unknown>)?.tsq)
+                    ? Number((((fv.fullFeed as Record<string, unknown>).marketFF as Record<string, unknown>).tbq)) / Number((((fv.fullFeed as Record<string, unknown>).marketFF as Record<string, unknown>).tsq))
                     : 0
                 },
                 timestamp: data.currentTs || new Date().toISOString(),
                 type: "live_feed",
                 feedValue: fv,
-                fullFeed: fv?.fullFeed,
-                ltpc: fv?.ltpc,
-                firstLevelWithGreeks: fv?.firstLevelWithGreeks
+                fullFeed: fv?.fullFeed as Record<string, unknown>,
+                ltpc: fv?.ltpc as Record<string, unknown>,
+                firstLevelWithGreeks: fv?.firstLevelWithGreeks as Record<string, unknown>
               };
               addAlert(alertData);
             }

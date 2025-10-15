@@ -1,16 +1,18 @@
 // lib/feed/subscription.ts
 import { logger } from "@/lib/logger";
 import WS from "ws";
+import { encodeSubscribeRequest, encodeUnsubscribeRequest } from "./decode";
 
 const activeSubs = new Set<string>();
-(global as any).__activeSubs = activeSubs;
+(global as Record<string, unknown>).__activeSubs = activeSubs;
 const MAX_SUBS = 500;
 
-export function subscribe(symbol: string, ws: WS, feedManager?: any) {
+// CHANGED: Made async to handle protobuf encoding
+export async function subscribe(symbol: string, ws: WS, feedManager?: { emit?: (event: string, data: unknown) => void }) {
   if (activeSubs.has(symbol)) {
     logger.warn(`Already subscribed to ${symbol}`, "Subscription");
     if (feedManager) {
-      feedManager.emit("tick", {
+      feedManager.emit?.("tick", {
         type: "subscription_status",
         symbol,
         status: "already_active",
@@ -29,16 +31,14 @@ export function subscribe(symbol: string, ws: WS, feedManager?: any) {
   }
 
   activeSubs.add(symbol);
-  const payload = {
-    guid: "sub_" + Date.now() + "_" + Math.random().toString(36).slice(2, 8),
-    method: "sub",
-    data: { mode: "full_d30", instrumentKeys: [symbol] },
-  };
+
   try {
-    ws.send(JSON.stringify(payload));
-    logger.info(`✅ Subscribed → ${symbol} | Mode: full_d30`, "Subscription");
+    // CHANGED: Use protobuf encoding
+    const binaryReq = await encodeSubscribeRequest([symbol]);
+    ws.send(binaryReq); // Send as binary, not JSON
+    logger.info(`✅ Subscribed → ${symbol} | Mode: full`, "Subscription");
     if (feedManager) {
-      feedManager.emit("tick", {
+      feedManager.emit?.("tick", {
         type: "subscription_confirmed",
         symbol,
         alertLevel: "NORMAL",
@@ -48,12 +48,13 @@ export function subscribe(symbol: string, ws: WS, feedManager?: any) {
       });
     }
   } catch (error) {
-    activeSubs.delete(symbol);
+    activeSubs.delete(symbol); // Remove from local state on send failure
     logger.error(`Failed to subscribe to ${symbol}: ${error}`, "Subscription");
   }
 }
 
-export function unsubscribe(symbol: string, ws: WS, feedManager?: any) {
+// CHANGED: Made async to handle protobuf encoding
+export async function unsubscribe(symbol: string, ws: WS, feedManager?: { emit?: (event: string, data: unknown) => void }) {
   if (!activeSubs.has(symbol)) {
     logger.warn(`Not subscribed to ${symbol}`, "Subscription");
     return;
@@ -63,22 +64,21 @@ export function unsubscribe(symbol: string, ws: WS, feedManager?: any) {
     return;
   }
   activeSubs.delete(symbol);
-  const payload = {
-    guid: "unsub_" + Date.now() + "_" + Math.random().toString(36).slice(2, 8),
-    method: "unsub",
-    data: { mode: "full_d30", instrumentKeys: [symbol] },
-  };
+
   try {
-    ws.send(JSON.stringify(payload));
+    // CHANGED: Use protobuf encoding
+    const binaryReq = await encodeUnsubscribeRequest([symbol]);
+    ws.send(binaryReq); // Send as binary, not JSON
     logger.warn(`❌ Unsubscribed → ${symbol}`, "Subscription");
     if (feedManager) {
-      feedManager.emit("tick", {
+      feedManager.emit?.("tick", {
         type: "unsubscription_confirmed",
         symbol,
         timestamp: new Date().toISOString(),
       });
     }
   } catch (error) {
+    activeSubs.add(symbol); // Restore to local state on send failure
     logger.error(`Failed to unsubscribe from ${symbol}: ${error}`, "Subscription");
   }
 }

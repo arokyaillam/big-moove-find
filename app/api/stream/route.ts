@@ -7,30 +7,30 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function GET(req: NextRequest) {
+  logger.system("[SSE-FLOW] A. New SSE client arriving", "Stream");
   try {
     const { readable, writable } = new TransformStream();
     const writer = writable.getWriter();
     const encoder = new TextEncoder();
     const clientId = Math.random().toString(36).slice(2, 8);
-    logger.info(`SSE client ${clientId} connecting`, "Stream");
+    logger.system(`[SSE-FLOW] B. Client id = ${clientId}`, "Stream");
 
     const feed = getSmartFeed();
-    // 1. wait for WS to be ready
     try {
       await new Promise<void>((res, rej) => {
         if (feed.isConnected()) return res();
         feed.once("ready", res);
         setTimeout(() => rej(new Error("WS timeout")), 8000);
       });
-    } catch (e) {
-      logger.error(`WS not ready for SSE: ${e}`, "Stream");
+    } catch {
+      logger.error(`[SSE-FLOW] C. WS not ready → 503`, "Stream");
       return new Response(JSON.stringify({ error: "Feed not ready" }), {
         status: 503,
         headers: { "Content-Type": "application/json" },
       });
     }
 
-    // 2. send first byte to unlock browser
+    logger.system("[SSE-FLOW] D. Sending connected frame", "Stream");
     await writer.write(encoder.encode(`data: ${JSON.stringify({
       type: "connected",
       id: clientId,
@@ -38,26 +38,28 @@ export async function GET(req: NextRequest) {
     })}\n\n`));
     await writer.write(encoder.encode(":\n\n"));
 
-    // 3. cached data
+    logger.system("[SSE-FLOW] E. Emit initial cached data", "Stream");
     try {
       await feed.emitInitialData(writer);
-    } catch (e) {
-      logger.warn(`Initial data emit failed: ${e}`, "Stream");
+    } catch {
+      logger.warn("[SSE-FLOW] F. Initial data emit failed", "Stream");
     }
 
-    // 4. listener with back-pressure
-    const onTick = async (payload: any) => {
+    const onTick = async (payload: unknown) => {
+      const p = payload as { type?: string; symbol?: string };
+      logger.system(`[SSE-FLOW] G. onTick received → ${p.type} ${p.symbol}`, "Stream");
       try {
         await writer.ready;
-        await writer.write(encoder.encode(`data: ${JSON.stringify(payload)}\n\n`));
-      } catch (err) {
-        logger.error(`Write failed for ${clientId}`, "Stream");
+        const chunk = `data: ${JSON.stringify(payload)}\n\n`;
+        await writer.write(encoder.encode(chunk));
+        logger.system(`[SSE-FLOW] H. Written to SSE → ${p.type}`, "Stream");
+      } catch {
+        logger.error(`[SSE-FLOW] I. Write failed for ${clientId}`, "Stream");
       }
     };
     feed.on("tick", onTick);
-    logger.system(`Attached tick listener for ${clientId}`, "Stream");
+    logger.system(`[SSE-FLOW] J. Attached tick listener for ${clientId}`, "Stream");
 
-    // 5. heartbeat
     const heartbeat = setInterval(async () => {
       try {
         await writer.ready;
@@ -67,19 +69,18 @@ export async function GET(req: NextRequest) {
       }
     }, 30000);
 
-    // 6. cleanup
     req.signal.addEventListener("abort", () => {
+      logger.warn(`[SSE-FLOW] K. Client ${clientId} aborted → cleanup`, "Stream");
       try {
         feed.off("tick", onTick);
         clearInterval(heartbeat);
         writer.close().catch(() => {});
-        logger.warn(`SSE client ${clientId} disconnected`, "Stream");
-      } catch (err) {
-        logger.error(`Cleanup error for ${clientId}`, "Stream");
+      } catch {
+        logger.error(`[SSE-FLOW] L. Cleanup error for ${clientId}`, "Stream");
       }
     });
 
-    // 7. response
+    logger.system("[SSE-FLOW] M. Returning SSE response", "Stream");
     return new Response(readable, {
       headers: {
         "Content-Type": "text/event-stream",
@@ -89,7 +90,7 @@ export async function GET(req: NextRequest) {
       },
     });
   } catch (error) {
-    logger.error(`SSE setup failed: ${error}`, "Stream");
+    logger.error(`[SSE-FLOW] N. SSE setup failed: ${error}`, "Stream");
     return new Response(JSON.stringify({ error: "Stream initialization failed" }), {
       status: 500,
       headers: { "Content-Type": "application/json" },

@@ -8,10 +8,10 @@ type Alert = {
   metrics: { ltp: number; volumeRatio: number; priceRange: number; obRatio: number; gamma?: number; delta?: number; iv?: number };
   timestamp: string;
   type?: string;
-  feedValue?: any;
-  fullFeed?: any;
-  ltpc?: any;
-  firstLevelWithGreeks?: any;
+  feedValue?: Record<string, unknown>;
+  fullFeed?: Record<string, unknown>;
+  ltpc?: Record<string, unknown>;
+  firstLevelWithGreeks?: Record<string, unknown>;
 };
 
 type FeedStore = {
@@ -26,7 +26,7 @@ type FeedStore = {
 const MAX_ALERTS = 200;
 const MAX_POINTS_PER_SYMBOL = 60; // ~ latest 60 ticks per symbol
 
-export const useFeedStore = create<FeedStore>((set, get) => ({
+export const useFeedStore = create<FeedStore>((set) => ({
   alerts: [],
   status: "connecting",
   history: {},

@@ -1,3 +1,4 @@
+// lib/feed/types.ts
 // LTP and Trade data
 export interface LTPData {
   ltp?: number;
@@ -62,7 +63,7 @@ export interface MarketFF {
 // Full feed block
 export interface FullFeed {
   marketFF?: MarketFF;
-  indexFF?: any;
+  indexFF?: Record<string, unknown>;
   requestMode?: string;
 }
 
@@ -84,5 +85,5 @@ export interface FeedResponseShape {
   type?: string;
   feeds?: Record<string, FeedValue>;
   currentTs?: string;
-  marketInfo?: any; // Additional market info data
-}
+  marketInfo?: Record<string, unknown>; // Additional market info data
+};
