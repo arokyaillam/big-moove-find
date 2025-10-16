@@ -148,11 +148,9 @@ export class SmartFeedManager extends EventEmitter {
         metrics: { ltp: data.ltp, volumeRatio: 0, priceRange: 0, obRatio: 0 },
         timestamp: new Date().toISOString(),
       };
-      await writer.ready; // Wait if the writer is not ready (backpressure)
-      await writer.write(encoder.encode(` ${JSON.stringify(payload)}\n\n`));
+      await writer.write(encoder.encode(`data: ${JSON.stringify(payload)}\n\n`));
     }
     // Send a final comment to signal end of initial data batch (optional)
-    await writer.ready;
     await writer.write(encoder.encode(":\n\n"));
   }
 

@@ -48,6 +48,8 @@ export const useFeedStore = create<FeedStore>((set) => ({
         console.log(`🆕 Added new alert for ${newAlert.symbol} (Score: ${newAlert.score.toFixed(2)})`);
       }
 
+      console.log(`[STORE] Alert processed: ${newAlert.symbol} type=${newAlert.type} score=${newAlert.score.toFixed(2)} alerts_count=${alerts.length}`);
+
       // history (per symbol) - always add new data point
       const t = Date.now();
       const prevSeries = state.history[newAlert.symbol] ?? [];

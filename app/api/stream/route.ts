@@ -49,14 +49,12 @@ export async function GET(req: NextRequest) {
       const p = payload as { type?: string; symbol?: string };
       logger.system(`[SSE-FLOW] G. onTick received → ${p.type} ${p.symbol}`, "Stream");
       try {
-        await writer.ready;
         const chunk = `data: ${JSON.stringify(payload)}\n\n`;
         await writer.write(encoder.encode(chunk));
         logger.system(`[SSE-FLOW] H. Written to SSE → ${p.type}`, "Stream");
       } catch (error) {
-        logger.error(`[SSE-FLOW] I. Write failed for ${clientId}: ${error}`, "Stream");
-        // Remove listener on write failure to prevent further errors
-        feed.off("tick", onTick);
+        logger.system(`[SSE-FLOW] I. Write failed for ${clientId}: ${error}`, "Stream");
+        // Keep listener to allow subsequent events
       }
     };
     feed.on("tick", onTick);
@@ -64,7 +62,6 @@ export async function GET(req: NextRequest) {
 
     const heartbeat = setInterval(async () => {
       try {
-        await writer.ready;
         await writer.write(encoder.encode(": heartbeat\n\n"));
       } catch {
         clearInterval(heartbeat);

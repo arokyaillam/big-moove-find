@@ -15,6 +15,7 @@ export function useSSEFeed() {
     es.onmessage = (e) => {
       try {
         const data = JSON.parse(e.data);
+        console.log("[SSE-RECEIVED]", data.type, data.symbol || "no-symbol", data.score || "no-score");
 
         // Handle connection confirmations
         if (data.type === "connected") {
